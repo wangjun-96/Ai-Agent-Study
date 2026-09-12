@@ -1,0 +1,21 @@
+Generic single-database configuration with an out-of-the-box connection.
+
+This directory is used by Alembic to manage database schema migrations.
+Generated migration scripts are stored in the `versions/` subdirectory.
+
+常用命令（在项目根目录执行）：
+
+    # 根据模型变更自动生成迁移脚本
+    alembic revision --autogenerate -m "描述本次变更"
+
+    # 执行迁移到最新版本（一键同步数据库表结构）
+    alembic upgrade head
+
+    # 回滚到上一版本
+    alembic downgrade -1
+
+    # 查看当前版本
+    alembic current
+
+    # 查看迁移历史
+    alembic history

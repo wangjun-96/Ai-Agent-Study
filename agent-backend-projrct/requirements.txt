@@ -1,0 +1,38 @@
+# FastAPI 异步 Web 框架
+fastapi
+
+# ASGI 服务器，用于运行 FastAPI 应用
+uvicorn[standard]
+
+# Pydantic v2 数据校验（随 FastAPI 安装，此处显式声明）
+pydantic>=2
+
+# 密码哈希加密
+passlib[bcrypt]
+
+# 限制 bcrypt 版本，避免 passlib 版本检测告警
+bcrypt<4.1
+
+# SQLAlchemy 2.0 ORM 框架，统一数据建模与数据库操作
+SQLAlchemy>=2.0
+
+# MySQL 驱动，供 SQLAlchemy 通过 pymysql 方言连接 MySQL
+pymysql
+
+# Alembic 数据库迁移工具，管理表结构变更与一键同步
+alembic
+
+# 环境变量统一管理（数据库地址、密钥、第三方接口地址等全部读取环境配置）
+pydantic-settings
+
+# 环境变量分层加载（按 APP_ENV 加载 .env.development / .env.production）
+python-dotenv==1.0.1
+
+# 日志体系：控制台彩色输出 + 文件滚动留痕，替代标准库 logging
+loguru==0.7.2
+
+# HTTP 客户端，用于编写接口冒烟测试
+httpx
+
+# 测试框架，用于编写与运行冒烟测试用例
+pytest

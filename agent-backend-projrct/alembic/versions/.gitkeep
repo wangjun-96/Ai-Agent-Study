@@ -1,0 +1,2 @@
+# 此目录用于存放 Alembic 自动生成的迁移脚本。
+# 首次执行 `alembic revision --autogenerate -m "init"` 后会在此处生成首个迁移文件。
