@@ -35,9 +35,8 @@ def get_auth_service(
         "- 接口限流：固定窗口按客户端 IP 计数，默认 5 次/分钟，超限返回 429。"
     ),
     status_code=status.HTTP_201_CREATED,
-    # 声明统一响应体结构，exclude_none 保证成功响应不输出 detail: null，保持现有报文不变
+    # 声明统一响应体结构；detail 已在 ApiResponse 模型层标记 exclude，成功响应不输出
     response_model=ApiResponse[UserResponse],
-    response_model_exclude_none=True,
     responses={
         400: {
             "model": ApiResponse,
