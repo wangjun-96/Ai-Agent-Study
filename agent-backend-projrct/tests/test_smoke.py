@@ -70,6 +70,7 @@ class TestUserCRUD:
         assert "id" in user
         assert "password" not in user  # 响应体不暴露密码
         assert "create_time" in user
+        assert "detail" not in body  # response_model 序列化：成功响应不含 detail
 
     def test_list_users(self, client):
         """查询用户列表：返回 200，列表包含已创建用户。"""
@@ -126,8 +127,11 @@ class TestUserCRUD:
         # 删除
         resp = client.delete(f"/api/v1/users/{user_id}")
         assert resp.status_code == 200
-        assert resp.json()["code"] == 0
-        assert resp.json()["message"] == "用户删除成功"
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["message"] == "用户删除成功"
+        assert body["data"] is None  # 无数据操作保留 data: null 契约
+        assert "detail" not in body
         # 删除后查询应返回 404
         get_resp = client.get(f"/api/v1/users/{user_id}")
         assert get_resp.status_code == 404

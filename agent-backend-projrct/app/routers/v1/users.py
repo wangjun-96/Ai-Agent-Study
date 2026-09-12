@@ -5,8 +5,9 @@
 异常由全局异常处理器统一捕获，无需在接口内 try-except。
 
 OpenAPI 文档约定：
-- 401（X-API-Key 鉴权失败）为全路由公共错误，在 router 级 responses 统一声明；
-- 400/404/422 等接口级错误在各接口 responses 中分别声明；
+- 401（X-API-Key 鉴权失败）与 422（参数校验失败）为全路由公共错误，
+  在 router 级 responses 统一声明，自动合并进每个接口；
+- 400/404 等接口级错误在各接口 responses 中分别声明；
 - 成功响应通过 response_model 声明统一响应体结构，detail 字段仅失败时出现。
 """
 from fastapi import APIRouter, Depends, status
@@ -48,7 +49,6 @@ router = APIRouter(
     response_model=ApiResponse[UserResponse],
     responses={
         400: {"model": ApiResponse, "description": "用户名已存在(40001)"},
-        422: _VALIDATION_ERROR_DOC,
     },
 )
 def create_user(
@@ -79,7 +79,6 @@ def list_users(service: UserService = Depends(get_user_service)) -> dict:
     response_model=ApiResponse[UserResponse],
     responses={
         404: {"model": ApiResponse, "description": "用户不存在(40401)"},
-        422: _VALIDATION_ERROR_DOC,
     },
 )
 def get_user(
@@ -99,7 +98,6 @@ def get_user(
     responses={
         400: {"model": ApiResponse, "description": "用户名已存在(40001)"},
         404: {"model": ApiResponse, "description": "用户不存在(40401)"},
-        422: _VALIDATION_ERROR_DOC,
     },
 )
 def update_user(
@@ -119,7 +117,6 @@ def update_user(
     response_model=ApiResponse,
     responses={
         404: {"model": ApiResponse, "description": "用户不存在(40401)"},
-        422: _VALIDATION_ERROR_DOC,
     },
 )
 def delete_user(
