@@ -48,6 +48,10 @@ class UserService:
             )
         return user
 
+    def get_user_by_username(self, username: str) -> User | None:
+        """按用户名查询用户，不存在返回 None（供登录认证场景使用）。"""
+        return self.user_dao.find_by_username(username)
+
     def list_users(self) -> list[User]:
         """查询全部用户。"""
         return self.user_dao.list_users()

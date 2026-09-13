@@ -5,8 +5,8 @@
 异常由全局异常处理器统一捕获，无需在接口内 try-except。
 
 OpenAPI 文档约定：
-- 401（X-API-Key 鉴权失败）与 422（参数校验失败）为全路由公共错误，
-  在 router 级 responses 统一声明，自动合并进每个接口；
+- 401（JWT 登录鉴权失败：缺失/过期/伪造访问令牌）与 422（参数校验失败）
+  为全路由公共错误，在 router 级 responses 统一声明，自动合并进每个接口；
 - 400/404 等接口级错误在各接口 responses 中分别声明；
 - 成功响应通过 response_model 声明统一响应体结构，detail 字段仅失败时出现。
 """
@@ -14,9 +14,8 @@ from fastapi import APIRouter, Depends, status
 
 from app.core import success
 from app.core.responses import ApiResponse
-from app.routers.v1.deps import get_user_service
+from app.routers.v1.deps import get_current_user, get_user_service
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
-from app.security import verify_api_key
 from app.services.user_service import UserService
 
 # 公共错误响应文档：422 参数校验失败，各接口复用，统一为标准响应体结构
@@ -28,13 +27,14 @@ _VALIDATION_ERROR_DOC = {
 router = APIRouter(
     prefix="/users",
     tags=["用户管理"],
-    # 统一挂载接口鉴权依赖，所有用户接口均校验 X-API-Key
-    dependencies=[Depends(verify_api_key)],
+    # 统一挂载 JWT 登录鉴权依赖：本路由所有接口必须携带有效访问令牌（登录后可访问），
+    # 未登录/令牌过期或伪造统一返回 401(40104)；新增接口自动受保护，避免逐个挂载遗漏
+    dependencies=[Depends(get_current_user)],
     # router 级公共错误响应，自动合并进本路由下每个接口的 OpenAPI 文档
     responses={
         401: {
             "model": ApiResponse,
-            "description": "未授权：无效或缺失的 X-API-Key(40101)",
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录或静默刷新后重试",
         },
         422: _VALIDATION_ERROR_DOC,
     },

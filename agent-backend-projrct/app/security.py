@@ -1,15 +1,14 @@
-"""安全工具集合：合并密码哈希、密码强度策略与接口鉴权三部分能力。
+"""安全工具集合：密码哈希与密码强度策略。
 
 - 密码哈希：基于 passlib + bcrypt，业务层在用户创建/更新时调用。
 - 密码强度：注册等场景的弱密码校验（黑名单 + 字母数字组合 + 禁止包含用户名）。
-- 接口鉴权：基于请求头 X-API-Key 的轻量鉴权，路由层统一挂载。
+
+接口登录鉴权（JWT 令牌校验）统一封装在 app/routers/v1/deps.py 的 get_current_user
+依赖与 app/core/jwt.py 中，业务路由通过 Depends 统一挂载，本模块不再承担接口鉴权。
 """
 import re
 
-from fastapi import Depends, Header, HTTPException, status
 from passlib.context import CryptContext
-
-from app.core.config import settings
 
 # ===========================================================================
 # 一、密码哈希（passlib + bcrypt）
@@ -72,32 +71,3 @@ def validate_password_strength(password: str, username: str) -> None:
         raise ValueError("密码必须同时包含字母和数字")
     if username and username.lower() in password.lower():
         raise ValueError("密码不能包含用户名")
-
-
-# ===========================================================================
-# 三、接口鉴权（X-API-Key）
-#      接口鉴权的作用是：
-#      1. 验证请求头 X-API-Key 是否存在且正确。
-#      2. 保护 API 接口不被未授权访问，防止未授权访问。
-#      3. 提供一种简单而有效的方式来验证客户端身份，避免使用复杂的认证机制。
-#      4. 可以根据需要扩展到其他认证机制，如 JWT、OAuth 等。
-# ===========================================================================
-
-def get_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> str:
-    """从请求头 X-API-Key 提取并校验 API Key，失败返回 401。
-
-    API Key 只从配置层（.env.development / .env.production 或系统环境变量）读取，
-    业务层不写死任何密钥。
-    """
-    if not x_api_key or x_api_key != settings.APP_API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="无效或缺失的 API Key",
-            headers={"WWW-Authenticate": 'ApiKey realm="API"'},
-        )
-    return x_api_key
-
-
-def verify_api_key(_: str = Depends(get_api_key)) -> None:
-    """接口鉴权依赖，便于在路由 dependencies 中统一挂载。"""
-    return None

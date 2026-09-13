@@ -14,8 +14,14 @@ class ResponseCode(IntEnum):
     SUCCESS = 0
 
     # 鉴权相关 401xx
+    # 40101 预留给框架级未授权（路由处理器中 Starlette 原生 401 统一映射）
     UNAUTHORIZED = 40101
-    INVALID_API_KEY = 40102
+    # 登录凭证错误：用户名或密码不正确（不区分具体哪一项，避免用户名被枚举）
+    INVALID_CREDENTIALS = 40103
+    # 访问令牌无效或已过期：前端收到后应使用刷新令牌静默换新并重试原请求
+    ACCESS_TOKEN_INVALID = 40104
+    # 刷新令牌无效或已过期：前端无法静默续期，应跳转重新登录
+    REFRESH_TOKEN_INVALID = 40105
 
     # 通用请求错误 400xx
     USER_ALREADY_EXISTS = 40001
@@ -40,7 +46,9 @@ class ResponseCode(IntEnum):
 CODE_MESSAGES: dict[ResponseCode, str] = {
     ResponseCode.SUCCESS: "操作成功",
     ResponseCode.UNAUTHORIZED: "未授权，禁止访问",
-    ResponseCode.INVALID_API_KEY: "无效或缺失的 API Key",
+    ResponseCode.INVALID_CREDENTIALS: "用户名或密码错误",
+    ResponseCode.ACCESS_TOKEN_INVALID: "访问令牌无效或已过期",
+    ResponseCode.REFRESH_TOKEN_INVALID: "刷新令牌无效或已过期",
     ResponseCode.PARAM_INVALID: "请求参数校验失败",
     ResponseCode.USER_ALREADY_EXISTS: "用户名已存在",
     ResponseCode.WEAK_PASSWORD: "密码强度不足",

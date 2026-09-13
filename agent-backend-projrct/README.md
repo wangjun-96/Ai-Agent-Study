@@ -41,30 +41,36 @@ agent-backend-projrct/
 │   └── test_smoke.py               # 冒烟测试用例（健康检查、CRUD、异常分支）
 └── app/
     ├── main.py                     # FastAPI 入口：日志初始化、异常处理器、路由
-    ├── security.py                 # 安全工具：密码哈希 + X-API-Key 鉴权
+    ├── security.py                 # 安全工具：密码 bcrypt 哈希 + 弱密码强度策略
     ├── core/                       # 横切基础设施
     │   ├── config.py               # 统一配置层（环境分层 + pydantic-settings）
     │   ├── exceptions.py           # 自定义业务/系统异常
     │   ├── responses.py            # 统一响应模型（code/message/data/detail）
+    │   ├── jwt.py                  # JWT 签发/校验（Access/Refresh 双令牌）
+    │   ├── rate_limit.py           # 固定窗口限流（注册接口 IP 维度）
     │   ├── logger.py               # Loguru 日志配置（开发双写 / 生产仅文件）
     │   └── handlers.py             # 全局异常处理器
     ├── enums/
-    │   └── response_code.py        # 业务状态码枚举
-    ├── schemas/
-    │   └── user.py                 # 校验层：Pydantic v2 请求/响应模型
+    │   ├── response_code.py        # 业务状态码枚举
+    │   └── token_type.py           # JWT 令牌类型枚举（access/refresh）
+    ├── schemas/                    # 校验层：Pydantic v2 请求/响应模型
+    │   ├── user.py                 # 用户模型
+    │   └── auth.py                 # 注册/登录/刷新/令牌模型
     ├── db/                         # 数据库层
     │   ├── base.py                 # SQLAlchemy Declarative Base
     │   ├── database.py             # Engine / Session 工厂 / get_db 依赖
     │   └── models.py               # ORM 模型：User 表定义
     ├── dao/
     │   └── user_dao.py             # 数据访问层：所有数据库操作封装在此
-    ├── services/
-    │   └── user_service.py         # 业务层：业务逻辑 + 密码哈希
+    ├── services/                   # 业务层：业务逻辑 + 密码哈希
+    │   ├── user_service.py
+    │   └── auth_service.py         # 注册/登录认证/令牌刷新
     └── routers/                    # 路由层
         ├── health.py               # 健康检查路由（/health，不挂鉴权）
+        ├── auth.py                 # 认证路由（注册/登录/刷新/当前用户）
         └── v1/
-            ├── deps.py             # 公共依赖项（FastAPI Depends）
-            └── users.py            # 用户增删改查路由
+            ├── deps.py             # 公共依赖项：JWT 鉴权 get_current_user 等
+            └── users.py            # 用户增删改查路由（统一 JWT 登录鉴权）
 ```
 
 ### 分层职责
@@ -163,7 +169,10 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 | --- | --- | --- | --- |
 | `APP_ENV` | 运行环境（development/production） | `development` | `production` |
 | `MYSQL_URL` | MySQL 连接串 | `mysql+pymysql://root:123456@localhost:3306/agent_project_database` | 替换为生产最小权限账号 |
-| `APP_API_KEY` | 接口鉴权密钥（请求头 `X-API-Key`） | `demo-api-key-2026` | 必须替换为高强度随机字符串 |
+| `JWT_SECRET_KEY` | JWT 签名密钥（至少 32 位随机串，`python -c "import secrets; print(secrets.token_urlsafe(48))"` 生成） | 本地开发随机串 | 必须替换为高强度随机字符串 |
+| `JWT_ALGORITHM` | JWT 签名算法 | `HS256` | `HS256` |
+| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | 访问令牌有效期（分钟） | `30` | 按安全策略设定 |
+| `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | 刷新令牌有效期（天） | `7` | 按安全策略设定 |
 | `LOG_LEVEL` | 日志级别 | `DEBUG` | `INFO` |
 | `LOG_RETENTION` | 日志文件保留时长（Loguru retention 语义） | `15 days` | `30 days` |
 | `SQL_ECHO` | 是否回显 SQL 语句 | `false` | `false` |
@@ -214,23 +223,45 @@ logger.error("系统异常：{}", exc)
 | GET | `/docs` | Swagger UI 接口文档 | 否 | 200 |
 | GET | `/redoc` | ReDoc 接口文档 | 否 | 200 |
 | GET | `/openapi.json` | OpenAPI 元数据 | 否 | 200 |
-| POST | `/api/v1/users/` | 创建用户 | 是 | 201 |
-| GET | `/api/v1/users/` | 查询用户列表 | 是 | 200 |
-| GET | `/api/v1/users/{user_id}` | 查询单个用户 | 是 | 200 |
-| PUT | `/api/v1/users/{user_id}` | 更新用户 | 是 | 200 |
-| DELETE | `/api/v1/users/{user_id}` | 删除用户 | 是 | 200 |
+| POST | `/auth/register` | 用户注册（弱密码校验 + bcrypt 哈希 + IP 限流 5/min） | 否 | 201 |
+| POST | `/auth/login` | 登录，返回 Access/Refresh 双令牌 | 否 | 200 |
+| POST | `/auth/refresh` | 刷新令牌过期后，用 Refresh Token 换新 Access Token | 否（凭刷新令牌） | 200 |
+| GET | `/auth/me` | 获取当前登录用户信息 | 是（JWT） | 200 |
+| POST | `/api/v1/users/` | 创建用户 | 是（JWT） | 201 |
+| GET | `/api/v1/users/` | 查询用户列表 | 是（JWT） | 200 |
+| GET | `/api/v1/users/{user_id}` | 查询单个用户 | 是（JWT） | 200 |
+| PUT | `/api/v1/users/{user_id}` | 更新用户 | 是（JWT） | 200 |
+| DELETE | `/api/v1/users/{user_id}` | 删除用户 | 是（JWT） | 200 |
 
-> 用户接口需在请求头携带 `X-API-Key`（开发环境默认值 `demo-api-key-2026`，由 `APP_API_KEY` 配置）。
-> `/health` 与文档接口不挂鉴权，供监控系统与开发者直接调用。
+> **鉴权白名单**：`/health`、文档接口与 `/auth/register`、`/auth/login`、`/auth/refresh` 不挂登录鉴权，供监控探活与匿名认证使用；
+> 其余业务接口（含全部 `/api/v1/*`）统一要求登录，在请求头携带 `Authorization: Bearer <access_token>`，
+> 缺失/过期/伪造令牌统一返回 401(40104)。
+
+### 鉴权流程（JWT 双令牌 + 无感刷新）
+
+1. `POST /auth/login` 登录成功，拿到 `access_token`（默认 30 分钟）与 `refresh_token`（默认 7 天）；
+2. 后续业务请求在请求头携带 `Authorization: Bearer <access_token>`；
+3. 访问令牌过期时接口返回 401(40104)，前端调用 `POST /auth/refresh`（请求体携带 `refresh_token`）换取新的访问令牌；
+4. 用新令牌自动重试原请求，全程无需用户重新登录；刷新令牌也失效（40105）时再跳转登录页。
 
 ### 请求示例
 
 ```powershell
-# 创建用户
+# 1. 登录获取令牌
+$login = Invoke-RestMethod -Uri "http://127.0.0.1:8000/auth/login" `
+  -Method Post -ContentType "application/json" `
+  -Body '{"username":"alice","password":"Goodpass1"}'
+
+# 2. 携带访问令牌调用受保护接口
 Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/users/" `
   -Method Post -ContentType "application/json" `
-  -Headers @{ "X-API-Key" = "demo-api-key-2026" } `
-  -Body '{"username":"alice","password":"secret123"}'
+  -Headers @{ "Authorization" = "Bearer $($login.data.access_token)" } `
+  -Body '{"username":"bob","password":"secret123"}'
+
+# 3. 访问令牌过期后，用刷新令牌换新
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/auth/refresh" `
+  -Method Post -ContentType "application/json" `
+  -Body (@{ refresh_token = $login.data.refresh_token } | ConvertTo-Json)
 ```
 
 ## 七、统一响应约定（双层状态码）
@@ -262,7 +293,9 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/users/" `
 | --- | --- | --- | --- |
 | 成功 | 200 / 201 | 0 | 用户创建成功 |
 | 用户名重复 | 400 | 40001 | 用户名已存在 |
-| 未携带/错误 API Key | 401 | 40101 | 无效或缺失的 API Key |
+| 用户名或密码错误 | 401 | 40103 | 用户名或密码错误 |
+| 缺失/过期/伪造访问令牌 | 401 | 40104 | 访问令牌无效或已过期 |
+| 刷新令牌无效或已过期 | 401 | 40105 | 刷新令牌无效或已过期 |
 | 用户不存在 | 404 | 40401 | 用户不存在 |
 | 路由不存在 | 404 | 404 | 请求的资源不存在 |
 | 请求参数校验失败 | 422 | 42200 | 字段【username】字段长度不能小于限制值 |
@@ -280,7 +313,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/users/" `
 }
 ```
 
-> 前端处理建议：axios 响应拦截器先按 HTTP 状态码分流（401 跳登录、422 展示字段错误、其他统一 toast `message`）；需要做业务级精细化交互时再读取 body 的 `code`。
+> 前端处理建议：axios 响应拦截器按 body `code` 分流——`40104` 时自动用刷新令牌换新并重试原请求（单飞，避免并发刷新），`40105` 刷新失败再跳转登录页，`422` 展示字段错误，其他统一 toast `message`。
 
 ## 八、数据库迁移（Alembic）
 
@@ -297,7 +330,7 @@ alembic upgrade head
 ## 九、安全说明
 
 - **密码哈希**：`app/security.py` 使用 bcrypt 算法，存储时不保留明文。
-- **接口鉴权**：`app/security.py` 通过请求头 `X-API-Key` 校验，所有用户路由统一挂载该依赖；密钥只从配置层（`APP_API_KEY`）读取，业务层不写死。
+- **登录鉴权（JWT）**：`app/core/jwt.py` 基于 PyJWT 签发/校验 Access/Refresh 双令牌（HS256 验签，载荷含 sub/username/type/exp/jti，两类令牌严格隔离不可混用）；`app/routers/v1/deps.py` 的 `get_current_user` 依赖在业务路由组（`/api/v1/*`）统一挂载，未登录请求一律 401(40104)；签名密钥只从配置层（`JWT_SECRET_KEY` 环境变量）读取，业务层不写死。
 - **敏感配置**：`.env.*` 包含数据库账号与密钥，已由 `.gitignore` 忽略，禁止提交；生产部署必须替换默认值。
 - **响应脱敏**：响应模型 `UserResponse` 仅暴露 `id` 与 `username`，不返回密码字段。
 - **健康检查脱敏**：`/health` 接口在数据库不可用时只返回 `database=fail` 布尔状态，异常原始信息（连接串、驱动报错）仅写入 `logs/error.log`，不回传给调用方，避免敏感信息外泄。
@@ -311,22 +344,25 @@ alembic upgrade head
 ### 测试策略
 
 - **数据库隔离**：`tests/conftest.py` 用 SQLite 内存数据库 + `StaticPool` 替代 MySQL，所有 Session 共享同一连接，测试不污染真实数据库。
-- **依赖覆写**：通过 `app.dependency_overrides` 覆写 `get_db` 与 `verify_api_key`，无需真实 MySQL 与 API Key。
-- **用例隔离**：每个用例执行后自动清空所有表数据，保证用例间互不影响。
+- **依赖覆写**：仅覆写 `get_db`，无需真实 MySQL；JWT 鉴权不绕过，用例通过真实"注册→登录"获取访问令牌后携带 Bearer 头访问业务接口，鉴权链路被真实覆盖。
+- **用例隔离**：每个用例执行后自动清空所有表数据并重置限流器，保证用例间互不影响。
 
 ### 覆盖范围
 
 | 分组 | 用例数 | 覆盖内容 |
 | --- | --- | --- |
 | 健康检查 | 2 | `/health` 服务存活 + 数据库连通性；`/docs`、`/redoc`、`/openapi.json` 文档可访问性 |
-| 用户 CRUD | 5 | 创建 → 查询列表 → 查询详情 → 更新 → 删除全链路 |
+| 用户 CRUD | 5 | 登录获取 JWT → 创建 → 查询列表 → 查询详情 → 更新 → 删除全链路 |
+| 登录鉴权 | 5 | 用户接口五种 HTTP 方法未登录统一 401(40104) |
+| 登录/JWT | 18 | `test_auth_login.py`：登录、令牌载荷、`/auth/me` 保护、刷新换新、过期自动刷新重试闭环 |
 | 异常分支 | 7 | 用户不存在 404、用户名重复 400、密码/用户名过短 422、缺字段 422、更新/删除不存在 404 |
+| 注册/限流 | 11 | bcrypt 哈希入库、弱密码校验 400、重复用户名 400、注册限流 429 |
 
 ### 运行测试
 
 ```powershell
 # 激活虚拟环境后执行
-pytest tests/test_smoke.py -v
+pytest tests/ -v
 ```
 
 > 真实 MySQL 连通性验证不在冒烟测试范围内，由 `/health` 接口在真实运行时承担：启动应用后访问 `http://localhost:8000/health`，数据库异常时返回 503。

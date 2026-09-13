@@ -10,6 +10,9 @@ pydantic>=2
 # 密码哈希加密
 passlib[bcrypt]
 
+# JWT 令牌签发与校验（登录 Access Token / Refresh Token）
+PyJWT>=2.8
+
 # 限制 bcrypt 版本，避免 passlib 版本检测告警
 bcrypt<4.1
 

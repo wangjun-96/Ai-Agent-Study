@@ -14,6 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 项目根目录（app/core/config.py 向上三级）
@@ -48,8 +49,16 @@ class Settings(BaseSettings):
 
     # MySQL 连接串，形如：mysql+pymysql://user:password@host:port/database
     MYSQL_URL: str
-    # 接口鉴权 API Key（请求头 X-API-Key 校验使用）
-    APP_API_KEY: str
+
+    # JWT 签名密钥：只允许从环境变量/配置层注入，禁止在业务代码中硬编码；
+    # HS256 要求密钥具备足够长度与随机性（至少 32 字符），生产环境必须替换为高强度随机串
+    JWT_SECRET_KEY: str = Field(..., min_length=32, description="JWT 签名密钥")
+    # JWT 签名算法，默认 HS256（HMAC + SHA-256，对称加密，签发与校验共用同一密钥）
+    JWT_ALGORITHM: str = "HS256"
+    # 访问令牌（Access Token）有效期（分钟）：短期有效，过期后用刷新令牌静默换新
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # 刷新令牌（Refresh Token）有效期（天）：长期有效，仅用于换取新的访问令牌
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # 日志级别：开发环境建议 DEBUG，生产环境建议 INFO
     LOG_LEVEL: str = "INFO"

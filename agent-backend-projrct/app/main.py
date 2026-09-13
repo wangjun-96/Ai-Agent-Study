@@ -40,10 +40,11 @@ register_exception_handlers(app)
 # 健康检查路由：挂载在根路径，不添加前缀、不挂载鉴权，供监控系统直接调用
 app.include_router(health_router)
 
-# 认证路由：注册等公开接口，路径为 /auth/xxx，不挂载 X-API-Key 鉴权
+# 认证路由：注册/登录/令牌刷新为匿名公开接口（白名单），/auth/me 内部挂载 JWT 鉴权
 app.include_router(auth_router)
 
-# 按业务模块分组挂载路由，统一添加路由前缀与接口标签
+# 业务路由：统一前缀 /api/v1；各业务路由组内部通过 dependencies 统一挂载 JWT
+# 登录鉴权，未登录请求统一返回 401，后续新增业务路由在组内自动纳入保护
 app.include_router(users.router, prefix="/api/v1")
 
 

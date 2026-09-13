@@ -2,8 +2,9 @@
 
 覆盖范围：
 1. 健康检查接口：服务存活、数据库连通性、接口文档可访问性（/docs、/redoc、/openapi.json）。
-2. 用户增删改查全链路：创建 → 查询列表 → 查询详情 → 更新 → 删除。
-3. 异常分支：用户不存在(404)、用户名重复(400)、参数校验失败(422)。
+2. 用户增删改查全链路：登录获取 JWT → 创建 → 查询列表 → 查询详情 → 更新 → 删除。
+3. 鉴权分支：用户接口未登录统一 401(40104)；业务异常分支：用户不存在(404)、
+   用户名重复(400)、参数校验失败(422)。
 4. 注册接口：注册成功且密码 bcrypt 哈希入库、弱密码校验(400)、限流(429)。
 
 运行命令：pytest tests/test_smoke.py -v
@@ -53,13 +54,15 @@ class TestHealth:
 
 
 class TestUserCRUD:
-    """用户增删改查接口冒烟测试。"""
+    """用户增删改查接口冒烟测试（业务接口需登录，全部携带 JWT 访问令牌）。"""
 
-    def test_create_user(self, client):
+    def test_create_user(self, client, login_user):
         """创建用户：返回 201，响应体包含用户信息，不含密码。"""
+        headers, _ = login_user()
         resp = client.post(
             "/api/v1/users/",
             json={"username": "alice", "password": "secret123"},
+            headers=headers,
         )
         assert resp.status_code == 201
         body = resp.json()
@@ -72,16 +75,16 @@ class TestUserCRUD:
         assert "create_time" in user
         assert "detail" not in body  # response_model 序列化：成功响应不含 detail
 
-    def test_list_users(self, client):
+    def test_list_users(self, client, login_user):
         """查询用户列表：返回 200，列表包含已创建用户。"""
-        # 先创建两个用户
+        # 先登录（注册即创建 alice），再用其令牌创建 bob，列表恰好 2 个用户
+        headers, _ = login_user("alice", "secret123")
         client.post(
-            "/api/v1/users/", json={"username": "alice", "password": "secret123"}
+            "/api/v1/users/",
+            json={"username": "bob", "password": "bobpass456"},
+            headers=headers,
         )
-        client.post(
-            "/api/v1/users/", json={"username": "bob", "password": "bobpass456"}
-        )
-        resp = client.get("/api/v1/users/")
+        resp = client.get("/api/v1/users/", headers=headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["code"] == 0
@@ -90,27 +93,22 @@ class TestUserCRUD:
         usernames = {u["username"] for u in users}
         assert usernames == {"alice", "bob"}
 
-    def test_get_user(self, client):
+    def test_get_user(self, client, login_user):
         """查询单个用户：返回 200，数据正确。"""
-        create_resp = client.post(
-            "/api/v1/users/", json={"username": "alice", "password": "secret123"}
-        )
-        user_id = create_resp.json()["data"]["id"]
-        resp = client.get(f"/api/v1/users/{user_id}")
+        headers, user_id = login_user("alice", "secret123")
+        resp = client.get(f"/api/v1/users/{user_id}", headers=headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["code"] == 0
         assert body["data"]["username"] == "alice"
 
-    def test_update_user(self, client):
+    def test_update_user(self, client, login_user):
         """更新用户：返回 200，用户名与密码更新生效。"""
-        create_resp = client.post(
-            "/api/v1/users/", json={"username": "alice", "password": "secret123"}
-        )
-        user_id = create_resp.json()["data"]["id"]
+        headers, user_id = login_user("alice", "secret123")
         resp = client.put(
             f"/api/v1/users/{user_id}",
             json={"username": "alice_updated", "password": "newpass789"},
+            headers=headers,
         )
         assert resp.status_code == 200
         body = resp.json()
@@ -118,22 +116,22 @@ class TestUserCRUD:
         assert body["message"] == "用户更新成功"
         assert body["data"]["username"] == "alice_updated"
 
-    def test_delete_user(self, client):
+    def test_delete_user(self, client, login_user):
         """删除用户：返回 200，再次查询应 404。"""
-        create_resp = client.post(
-            "/api/v1/users/", json={"username": "alice", "password": "secret123"}
-        )
-        user_id = create_resp.json()["data"]["id"]
+        headers, user_id = login_user("alice", "secret123")
+        # 另备一个有效账号：删除后 alice 自己的令牌会在鉴权层失效(40104)，
+        # 用 bob 的有效令牌才能通过鉴权并命中"用户不存在"的 404 业务分支
+        other_headers, _ = login_user("bob", "otherpass7")
         # 删除
-        resp = client.delete(f"/api/v1/users/{user_id}")
+        resp = client.delete(f"/api/v1/users/{user_id}", headers=headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["code"] == 0
         assert body["message"] == "用户删除成功"
         assert body["data"] is None  # 无数据操作保留 data: null 契约
         assert "detail" not in body
-        # 删除后查询应返回 404
-        get_resp = client.get(f"/api/v1/users/{user_id}")
+        # 删除后用其他有效账号查询：鉴权通过，资源不存在 → 404
+        get_resp = client.get(f"/api/v1/users/{user_id}", headers=other_headers)
         assert get_resp.status_code == 404
 
 
@@ -142,68 +140,102 @@ class TestUserCRUD:
 # ---------------------------------------------------------------------------
 
 
-class TestUserErrors:
-    """用户接口异常分支冒烟测试。"""
+class TestUserAuth:
+    """用户管理接口统一登录鉴权冒烟测试：未登录一律拒绝。"""
 
-    def test_get_user_not_found(self, client):
+    @pytest.mark.parametrize(
+        "method,path,payload",
+        [
+            ("GET", "/api/v1/users/", None),
+            ("POST", "/api/v1/users/", {"username": "alice", "password": "secret123"}),
+            ("GET", "/api/v1/users/1", None),
+            ("PUT", "/api/v1/users/1", {"username": "ghost"}),
+            ("DELETE", "/api/v1/users/1", None),
+        ],
+    )
+    def test_users_api_requires_login(self, client, method, path, payload):
+        """未携带访问令牌访问任一用户接口：统一返回 401(40104)，并提示 Bearer 认证。"""
+        resp = client.request(method, path, json=payload)
+        assert resp.status_code == 401
+        body = resp.json()
+        assert body["code"] == 40104
+        assert body["message"] == "访问令牌无效或已过期"
+        assert resp.headers["WWW-Authenticate"] == "Bearer"
+
+
+class TestUserErrors:
+    """用户接口异常分支冒烟测试（均已登录，携带有效 JWT 访问令牌）。"""
+
+    def test_get_user_not_found(self, client, login_user):
         """查询不存在的用户：返回 404。"""
-        resp = client.get("/api/v1/users/99999")
+        headers, _ = login_user()
+        resp = client.get("/api/v1/users/99999", headers=headers)
         assert resp.status_code == 404
         body = resp.json()
         assert body["code"] == 40401
         assert body["message"] == "用户不存在"
 
-    def test_create_duplicate_username(self, client):
+    def test_create_duplicate_username(self, client, login_user):
         """创建重复用户名：返回 400，业务码为 40001。"""
-        client.post(
-            "/api/v1/users/", json={"username": "alice", "password": "secret123"}
-        )
+        headers, _ = login_user("alice", "secret123")
         resp = client.post(
-            "/api/v1/users/", json={"username": "alice", "password": "otherpass"}
+            "/api/v1/users/",
+            json={"username": "alice", "password": "otherpass"},
+            headers=headers,
         )
         assert resp.status_code == 400
         body = resp.json()
         assert body["code"] == 40001
         assert body["message"] == "用户名已存在"
 
-    def test_create_user_validation_short_password(self, client):
+    def test_create_user_validation_short_password(self, client, login_user):
         """参数校验：密码过短返回 422。"""
+        headers, _ = login_user()
         resp = client.post(
             "/api/v1/users/",
             json={"username": "alice", "password": "123"},  # 密码 < 6 位
+            headers=headers,
         )
         assert resp.status_code == 422
         body = resp.json()
         assert body["code"] == 42200
 
-    def test_create_user_validation_short_username(self, client):
+    def test_create_user_validation_short_username(self, client, login_user):
         """参数校验：用户名过短返回 422。"""
+        headers, _ = login_user()
         resp = client.post(
             "/api/v1/users/",
             json={"username": "a", "password": "secret123"},  # 用户名 < 2 位
+            headers=headers,
         )
         assert resp.status_code == 422
         body = resp.json()
         assert body["code"] == 42200
 
-    def test_create_user_missing_fields(self, client):
+    def test_create_user_missing_fields(self, client, login_user):
         """参数校验：缺少必填字段返回 422。"""
-        resp = client.post("/api/v1/users/", json={"username": "alice"})
+        headers, _ = login_user()
+        resp = client.post(
+            "/api/v1/users/", json={"username": "alice"}, headers=headers
+        )
         assert resp.status_code == 422
         assert resp.json()["code"] == 42200
 
-    def test_update_user_not_found(self, client):
+    def test_update_user_not_found(self, client, login_user):
         """更新不存在的用户：返回 404。"""
+        headers, _ = login_user()
         resp = client.put(
             "/api/v1/users/99999",
             json={"username": "ghost"},
+            headers=headers,
         )
         assert resp.status_code == 404
         assert resp.json()["code"] == 40401
 
-    def test_delete_user_not_found(self, client):
+    def test_delete_user_not_found(self, client, login_user):
         """删除不存在的用户：返回 404。"""
-        resp = client.delete("/api/v1/users/99999")
+        headers, _ = login_user()
+        resp = client.delete("/api/v1/users/99999", headers=headers)
         assert resp.status_code == 404
         assert resp.json()["code"] == 40401
 
