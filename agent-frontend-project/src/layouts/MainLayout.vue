@@ -6,10 +6,12 @@ import AppSidebar from '@/components/sidebar/AppSidebar.vue'
 import { MOCK_MESSAGES, MOCK_NOTES, MOCK_SESSIONS } from '@/config/constant'
 import { useChatStore } from '@/stores/chat'
 import { useNoteStore } from '@/stores/note'
+import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const chatStore = useChatStore()
 const noteStore = useNoteStore()
+const userStore = useUserStore()
 
 // 布局挂载时初始化默认会话的完整对话并激活（仅首次生效）
 chatStore.initSession(MOCK_SESSIONS[0].id, MOCK_MESSAGES)
@@ -17,6 +19,12 @@ chatStore.loadSession(MOCK_SESSIONS[0].id)
 
 // 默认激活第一篇笔记（内容懒初始化）
 noteStore.selectNote(MOCK_NOTES[0].id)
+
+// 已登录（含刷新页面从 localStorage 恢复登录态）时拉取当前用户信息；
+// 令牌失效由请求拦截器统一静默刷新 / 跳转登录页，此处无需额外处理
+if (userStore.isLoggedIn) {
+  userStore.fetchCurrentUser().catch(() => undefined)
+}
 
 /** 当前路由的侧边栏类型：chat 聊天会话 / note 笔记 */
 const sidebarType = computed(() => route.meta.sidebar ?? 'chat')

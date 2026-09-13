@@ -1,5 +1,222 @@
-# Vue 3 + TypeScript + Vite
+# 学面通AI（agent-frontend-project）
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+基于 **Vue 3 + TypeScript + Vite** 构建的 AI 面试模拟与学习辅助前端应用。应用围绕「面试练习 + 学习问答 + 笔记沉淀」三个场景组织，当前包含三大模块：**面试间**、**学习室**、**笔记本**。
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+> 说明：当前版本为前端界面与交互的完整实现，业务数据使用本地 Mock，AI 回复为前端定时模拟，接口层为预留状态（详见「数据与接口现状」）。
+
+---
+
+## 一、功能特性
+
+- **面试间（默认首页）**：聊天式模拟面试，支持多轮对话、消息自动滚动、AI 回复期间禁止重复发送；输入区预置「上传文件 / 简历优化 / 模拟面试 / 面试复盘 / 知识精讲 / 语音输入」功能入口。
+- **学习室**：与面试间共用聊天室组件，预置「上传文件 / 知识精讲 / 刷题模式」功能入口，占位文案与按钮按场景配置。
+- **笔记本**：基于 wangEditor 的富文本笔记编辑，支持标题实时编辑、常用格式工具栏（加粗、列表、对齐、链接、图片等）。
+- **历史会话 / 笔记侧边栏**：新建、切换、行内重命名、删除（删除二次确认），聊天列表与笔记列表复用同一套组件。
+- **顶部模块导航**：Tab 切换与路由双向联动，刷新后保持当前模块。
+- **多环境配置**：内置开发 / 测试 / 生产三套环境变量，本地开发通过代理转发后端接口。
+
+---
+
+## 二、技术栈
+
+| 分类 | 技术 | 版本（package.json） |
+| --- | --- | --- |
+| 框架 | Vue（Composition API + `<script setup>`） | ^3.5.41 |
+| 语言 | TypeScript | ~6.0.2 |
+| 构建工具 | Vite | ^8.2.2 |
+| 状态管理 | Pinia | ^4.0.3 |
+| 路由 | Vue Router（History 模式） | ^5.3.0 |
+| UI 组件库 | Element Plus + @element-plus/icons-vue | ^2.14.5 / ^2.3.2 |
+| 富文本编辑器 | wangEditor（@wangeditor/editor + editor-for-vue） | ^5.1.23 / ^5.1.12 |
+| 样式 | Sass（SCSS） | ^1.103.1 |
+| 类型检查 | vue-tsc | ^3.3.11 |
+| 包管理器 | npm（禁止混用 yarn / pnpm lock 文件） | - |
+
+---
+
+## 三、环境要求
+
+- **Node.js**：建议使用 LTS 版本。Vite 8 官方要求 Node.js `20.19+` 或 `22.12+`。
+- **npm**：随 Node.js 安装即可。
+- 后端服务（联调时）：默认对接 `http://localhost:8000`，可通过环境变量修改。
+
+---
+
+## 四、快速开始
+
+```bash
+# 1. 安装依赖
+npm install
+
+# 2. 启动本地开发服务（默认 http://localhost:5173 ，启动后自动打开浏览器）
+npm run dev
+
+# 3. 类型检查 + 生产环境构建（产物输出至 dist/）
+npm run build
+
+# 4. 本地预览生产构建产物
+npm run preview
+```
+
+如需以测试环境配置启动，可指定 Vite mode：
+
+```bash
+npm run dev -- --mode test
+```
+
+---
+
+## 五、环境变量
+
+项目根目录提供三套环境配置，业务代码统一通过 `import.meta.env.VITE_XXX` 读取：
+
+| 变量名 | 说明 | 开发环境默认值 |
+| --- | --- | --- |
+| `VITE_APP_TITLE` | 应用标题 | `Agent Frontend (Dev)` |
+| `VITE_PORT` | 本地开发服务器端口 | `5173` |
+| `VITE_API_PREFIX` | 接口请求前缀，同时作为开发代理匹配规则 | `/api` |
+| `VITE_PROXY_TARGET` | 开发 / 测试环境代理转发的后端地址 | `http://localhost:8000` |
+| `VITE_API_BASE_URL` | 接口基础路径（预留的 axios 实例使用） | `/api` |
+| `VITE_LOG_ENABLED` | 是否开启调试日志（生产环境关闭） | `true` |
+
+配置文件：`.env.development`、`.env.test`、`.env.production`。`NODE_ENV` 由 Vite 按 mode 自动注入，请勿在文件中手动设置。
+
+---
+
+## 六、目录结构
+
+```
+agent-frontend-project/
+├── public/
+│   └── favicon.svg                # 站点图标
+├── rules/
+│   └── frontend-coding-standards.md  # 前端编码规范（提交前必读）
+├── src/
+│   ├── components/                # 通用 / 业务组件
+│   │   ├── chat/                  # 聊天相关：聊天室、输入区、消息列表、气泡、头像
+│   │   ├── common/                # 通用基础组件（TabSwitch）
+│   │   ├── layout/                # 布局组件（AppHeader 顶部导航）
+│   │   ├── note/                  # 笔记组件（NoteEditorCard 富文本卡片）
+│   │   └── sidebar/               # 侧边栏（AppSidebar 容器 + ChatHistoryList 列表）
+│   ├── config/
+│   │   └── constant.ts            # 全局常量：Tab/功能按钮配置、招呼语、Mock 数据
+│   ├── layouts/
+│   │   └── MainLayout.vue         # 主布局：顶部导航 + 侧边栏 + 路由出口
+│   ├── router/
+│   │   └── index.ts               # 集中路由配置 + 全局标题守卫
+│   ├── stores/
+│   │   ├── chat.ts                # 聊天状态（会话列表、消息缓存、模拟回复）
+│   │   └── note.ts                # 笔记状态（笔记列表、富文本内容缓存）
+│   ├── styles/
+│   │   ├── index.scss             # 全局基础样式与滚动条美化
+│   │   └── variables.scss         # 主题色、布局尺寸、圆角等 SCSS 变量
+│   ├── types/
+│   │   ├── interview.ts           # 消息、会话、Tab、功能按钮等全局类型
+│   │   └── router.d.ts            # 路由 meta 类型扩展（title / sidebar）
+│   ├── views/                     # 页面容器组件
+│   │   ├── interview/index.vue    # 面试间
+│   │   ├── study/index.vue        # 学习室
+│   │   └── note/index.vue         # 笔记本
+│   ├── App.vue                    # 根组件（仅承载 router-view）
+│   └── main.ts                    # 应用入口（注册 Element Plus / Pinia / Router）
+├── .env.development               # 开发环境变量
+├── .env.test                      # 测试环境变量
+├── .env.production                # 生产环境变量
+├── index.html                     # HTML 入口（标题：学面通AI）
+├── vite.config.ts                 # Vite 配置（别名、代理、构建分桶）
+├── tsconfig.json                  # TS 配置入口（引用 app / node 两份配置）
+├── tsconfig.app.json              # 应用代码 TS 配置（@ 路径别名等）
+└── package.json
+```
+
+---
+
+## 七、功能模块说明
+
+### 1. 面试间 `/interview`（默认页）
+
+- 根路径 `/` 通过 `DEFAULT_TAB_PATH` 重定向至此。
+- 页面容器 `views/interview/index.vue` 仅负责装配：复用 `ChatRoom` 组件，传入面试场景占位文案「输入你的回答...」与 `INTERVIEW_INPUT_ACTIONS` 按钮配置。
+- 进入会话时 AI 自动发送招呼语；发送消息后模拟 600ms 异步回复，回复期间输入区禁用。
+
+### 2. 学习室 `/study`
+
+- 与面试间共用 `ChatRoom`，占位文案为「输入你的问题...」，按钮配置为 `STUDY_INPUT_ACTIONS`。
+- 两个聊天页面共享同一个 `useChatStore`，会话与消息缓存互通。
+
+### 3. 笔记本 `/note`
+
+- 富文本编辑卡片 `NoteEditorCard`：wangEditor 工具栏 + 标题输入框 + 编辑区。
+- 标题与内容通过可写计算属性实时同步到 `useNoteStore`，切换笔记即时加载对应内容；组件卸载时销毁编辑器实例避免内存泄漏。
+
+### 4. 全局布局与侧边栏
+
+- `MainLayout` 由 `AppHeader`（Logo + Tab 导航）、`AppSidebar`（新建按钮 + 列表）、`router-view` 三部分组成。
+- 侧边栏根据当前路由 `meta.sidebar` 切换数据源：`chat` 渲染聊天会话，`note` 渲染笔记列表；两套列表复用 `AppSidebar` + `ChatHistoryList`，仅通过 props 文案与事件区分业务。
+
+---
+
+## 八、架构与约定
+
+### 路由
+
+- 路由集中在 `src/router/index.ts` 维护，页面组件全部使用动态 `import()` 懒加载。
+- 路由 meta 约定（类型见 `src/types/router.d.ts`）：
+  - `title`：页面标题，全局前置守卫统一拼接为 `${title} - 学面通AI` 并设置 `document.title`；
+  - `sidebar`：侧边栏类型，`'chat'`（默认）或 `'note'`，决定布局层渲染哪个侧边栏。
+- 使用 `createWebHistory()`（History 模式），部署到静态服务器时需配置 history fallback。
+
+### 状态管理（Pinia）
+
+- 全部使用 Setup Store 写法（`defineStore` + 组合式函数）。
+- `useChatStore`：`sessions` 历史会话、`activeSessionId`、`conversations`（按会话 ID 缓存的消息表）、`isReplying`；提供初始化、切换、新建、重命名、删除、发送消息等动作。
+- `useNoteStore`：`notes` 笔记列表、`activeNoteId`、`contents`（按笔记 ID 缓存的 HTML 内容）；提供选择、新建、重命名、内容更新、删除等动作。
+- 删除当前激活项后自动切换到列表首项；列表为空时激活 ID 置空。
+
+### 组件复用与配置驱动
+
+- `ChatRoom`（消息列表 + 输入区）被面试间、学习室复用，差异通过 `placeholder` 与 `actions` 配置消化。
+- 功能按钮由 `src/config/constant.ts` 的 `InputAction[]` 驱动，图标通过 `ChatInputBar` 内的图标名映射渲染，未匹配时回退到附件图标。
+- 输入区的功能按钮当前为预留入口，点击统一弹出「xx功能开发中」提示。
+
+### 数据与接口现状
+
+- 会话、笔记、消息等数据均为 `src/config/constant.ts` 中的 Mock 数据，仅保存在 Pinia 内存中，刷新页面后重置。
+- AI 回复由 `stores/chat.ts` 中的 `window.setTimeout` 模拟（代码内已标注「后续替换为真实接口调用」）。
+- `VITE_API_BASE_URL` 已为接口层预留，但项目尚未安装 axios、暂无 `src/api/` 与 `src/utils/request.ts`。接入后端时的建议步骤：
+  1. 安装 axios，新增 `src/utils/request.ts` 统一封装实例（baseURL 取 `import.meta.env.VITE_API_BASE_URL`、统一拦截器与错误处理）；
+  2. 按业务模块新增 `src/api/*.ts`，入参 / 出参补充完整 interface；
+  3. 将 `sendMessage` 中的模拟逻辑替换为真实接口调用，并移除 `constant.ts` 中对应的 Mock 数据。
+
+### Vite 工程配置
+
+- 路径别名：`@` 指向 `src`（`vite.config.ts` 与 `tsconfig.app.json` 两处保持一致）。
+- 开发服务器：监听 `0.0.0.0:5173`，自动打开浏览器；以 `VITE_API_PREFIX`（默认 `/api`）为前缀的请求代理到 `VITE_PROXY_TARGET`，并通过 `rewrite` 移除 `/api` 前缀。
+- 构建：产物输出 `dist/`；非生产环境生成 sourcemap；`node_modules` 中的 `element-plus`、`@wangeditor`、`vue` 拆分为独立 chunk，便于缓存复用；单包告警阈值 1500KB。
+
+### 样式规范
+
+- 组件样式统一 `<style scoped lang="scss">` 隔离，类名使用小写连字符。
+- 颜色、尺寸、圆角等禁止硬编码，统一引用 `src/styles/variables.scss`（品牌主色为品牌黄 `#fbc531`，聊天区背景为米色 `#fbf4e9`）。
+- 全局基础重置、字体栈、滚动条美化位于 `src/styles/index.scss`。
+
+---
+
+## 九、新增页面 / 模块指引
+
+1. 在 `src/views/<模块>/index.vue` 新建页面容器组件，保持「容器装配、子组件承载 UI」的分层；
+2. 在 `src/router/index.ts` 的 `MainLayout` children 中注册路由，按需配置 `meta.title` 与 `meta.sidebar`；
+3. 如需出现在顶部导航，在 `src/config/constant.ts` 的 `TAB_LIST` 中追加 `{ path, label }`；
+4. 涉及全局状态时在 `src/stores/` 新增独立 store，页面临时状态使用 `ref` / `reactive`；
+5. 公共类型补充到 `src/types/`，禁止在组件内重复定义。
+
+---
+
+## 十、编码规范
+
+项目强制遵循 [前端编码规范](./rules/frontend-coding-standards.md)，提交代码前请按文档末尾的检查清单自检，核心要求包括：
+
+- 统一使用 Vue 3 Composition API + `<script setup>` + TypeScript，禁止滥用 `any`；
+- 单文件控制在 500 行以内，Props / Emits 必须定义完整类型；
+- 接口请求统一走 axios 封装，禁止裸写 axios 与硬编码地址；
+- 样式 scoped 隔离并使用主题变量，提交前移除无用 `console` / `debugger`。

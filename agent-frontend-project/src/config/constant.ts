@@ -10,6 +10,9 @@ export const TAB_LIST: TabItem[] = [
 /** 默认重定向的 Tab 路径 */
 export const DEFAULT_TAB_PATH = '/interview'
 
+/** 登录页路径（路由守卫、退出登录、登录态失效跳转统一引用） */
+export const LOGIN_PATH = '/login'
+
 /** 学习室输入区功能按钮配置 */
 export const STUDY_INPUT_ACTIONS: InputAction[] = [
   { key: 'upload', label: '上传文件', icon: 'Upload' },

@@ -1,0 +1,885 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "用户管理 API",
+    "description": "基于 FastAPI + SQLAlchemy 2.0 + MySQL 的用户增删改查示例",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "健康检查"
+        ],
+        "summary": "健康检查",
+        "description": "健康检查：校验服务存活及数据库连通性，异常返回 503。\n\n- 服务存活：接口能响应即代表服务正常。\n- 数据库连通性：执行 ``SELECT 1``，失败则标记为不健康并返回 503。\n- 异常详情仅写入日志，响应体只暴露 healthy/unhealthy 状态，\n  避免数据库连接串、底层驱动报错等敏感信息外泄。",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "tags": [
+          "认证鉴权"
+        ],
+        "summary": "用户注册",
+        "description": "外部用户自助注册，无需鉴权。\n\n- 弱密码校验：命中常见弱密码黑名单 / 必须同时包含字母和数字 / 禁止包含用户名；\n- 密码经 bcrypt 哈希后入库，响应不返回密码；\n- 接口限流：固定窗口按客户端 IP 计数，默认 5 次/分钟，超限返回 429。",
+        "operationId": "register_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_UserResponse_"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "业务失败：密码强度不足(40002) 或 用户名已存在(40001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "触发限流(42901)：单 IP 5 次/分钟，响应头携带 Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "认证鉴权"
+        ],
+        "summary": "用户登录",
+        "description": "用户名 + 密码登录，校验通过后签发 JWT 双令牌，无需鉴权。\n\n- access_token：访问令牌，放入请求头 `Authorization: Bearer \u003Ctoken\u003E` 访问受保护接口；\n- refresh_token：刷新令牌，access_token 过期后调用 /auth/refresh 静默换取新令牌；\n- 用户名不存在与密码错误统一返回 401(40103)，避免用户名被枚举。",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_TokenResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "用户名或密码错误(40103)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": [
+          "认证鉴权"
+        ],
+        "summary": "刷新访问令牌",
+        "description": "访问令牌过期后，使用刷新令牌换取新的访问令牌，供前端静默续期。\n\n- 仅接受 type=refresh 的令牌，访问令牌调用本接口返回 401(40105)；\n- 刷新令牌过期/伪造/对应用户不存在时返回 401(40105)，需重新登录。",
+        "operationId": "refresh_token_auth_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_AccessTokenResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "刷新令牌无效或已过期(40105)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "认证鉴权"
+        ],
+        "summary": "获取当前登录用户",
+        "description": "JWT 保护接口示例：携带有效访问令牌返回当前登录用户信息。\n\n- 请求头携带 `Authorization: Bearer \u003Caccess_token\u003E`；\n- 访问令牌缺失/过期/伪造返回 401(40104)，前端应静默刷新后重试。",
+        "operationId": "get_me_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_UserResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "访问令牌无效或已过期(40104)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/": {
+      "get": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "查询用户列表",
+        "description": "返回全部用户（按 id 升序），列表项不包含密码字段。",
+        "operationId": "list_users_api_v1_users__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_list_UserResponse__"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录或静默刷新后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "创建用户",
+        "description": "管理端创建用户：校验用户名唯一性，密码经 bcrypt 哈希后入库，响应不返回密码。",
+        "operationId": "create_user_api_v1_users__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_UserResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录或静默刷新后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "用户名已存在(40001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/{user_id}": {
+      "get": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "查询单个用户",
+        "description": "按用户 id 查询详情，用户不存在时返回 404。",
+        "operationId": "get_user_api_v1_users__user_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_UserResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录或静默刷新后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "用户不存在(40401)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "更新用户",
+        "description": "更新用户信息，仅更新非空字段；用户名变更再次校验唯一性，密码变更重新哈希。",
+        "operationId": "update_user_api_v1_users__user_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_UserResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录或静默刷新后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "用户名已存在(40001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "用户不存在(40401)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "删除用户",
+        "description": "按用户 id 删除，用户不存在时返回 404；成功响应 data 为 null。",
+        "operationId": "delete_user_api_v1_users__user_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录或静默刷新后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "用户不存在(40401)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "健康检查",
+        "description": "根路径健康检查。",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Root  Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "业务状态码，0 表示成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "中文提示信息"
+          },
+          "data": {
+            "anyOf": [
+              {
+
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "业务数据，失败时为 null"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiResponse",
+        "description": "通用统一响应体。"
+      },
+      "ApiResponse_AccessTokenResponse_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "业务状态码，0 表示成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "中文提示信息"
+          },
+          "data": {
+            "anyOf": [
+              {
+
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "业务数据，失败时为 null"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiResponse[AccessTokenResponse]"
+      },
+      "ApiResponse_TokenResponse_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "业务状态码，0 表示成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "中文提示信息"
+          },
+          "data": {
+            "anyOf": [
+              {
+
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "业务数据，失败时为 null"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiResponse[TokenResponse]"
+      },
+      "ApiResponse_UserResponse_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "业务状态码，0 表示成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "中文提示信息"
+          },
+          "data": {
+            "anyOf": [
+              {
+
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "业务数据，失败时为 null"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiResponse[UserResponse]"
+      },
+      "ApiResponse_list_UserResponse__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "业务状态码，0 表示成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "中文提示信息"
+          },
+          "data": {
+            "anyOf": [
+              {
+
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "业务数据，失败时为 null"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiResponse[list[UserResponse]]"
+      },
+      "LoginRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Username",
+            "description": "用户名"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "description": "密码（明文传输，依赖 HTTPS 保护）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "description": "登录请求体：用户名 + 密码。\n\n登录场景不做密码强度/长度（6 位）限制，只要求非空：\n用户可能是历史数据，强度规则只在注册/改密时约束，凭证错误统一由业务层返回 401。"
+      },
+      "RefreshTokenRequest": {
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Refresh Token",
+            "description": "登录时获取的刷新令牌"
+          }
+        },
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "title": "RefreshTokenRequest",
+        "description": "刷新令牌请求体：仅携带登录时签发的 Refresh Token。"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Username",
+            "description": "用户名"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 6,
+            "title": "Password",
+            "description": "密码（明文，存储前会哈希）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "RegisterRequest",
+        "description": "注册请求体：字段同用户创建（username/password），复用其 Pydantic 约束。\n\n继承 UserCreate 后可直接传入 UserService.create_user，无需重复定义字段；\n独立类型便于注册接口在 Swagger 中语义化展示及后续扩展注册专属字段。"
+      },
+      "UserCreate": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Username",
+            "description": "用户名"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 6,
+            "title": "Password",
+            "description": "密码（明文，存储前会哈希）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "UserCreate",
+        "description": "创建用户请求体。"
+      },
+      "UserUpdate": {
+        "properties": {
+          "username": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username",
+            "description": "用户名"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 6
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password",
+            "description": "新密码"
+          }
+        },
+        "type": "object",
+        "title": "UserUpdate",
+        "description": "更新用户请求体，所有字段可选。"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

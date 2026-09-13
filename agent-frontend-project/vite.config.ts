@@ -25,14 +25,16 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: Number(env.VITE_PORT) || 5173,
       open: true,
-      // 跨域代理：所有以 VITE_API_PREFIX 开头的请求转发到后端
+      // 跨域代理：后端认证接口为 /auth/*，业务接口为 /api/v1/*，
+      // 两类路径均原样透传（不做 rewrite），由后端按真实路径接收
       proxy: {
         [env.VITE_API_PREFIX || '/api']: {
           target: proxyTarget,
           changeOrigin: true,
-          // 重写路径：移除请求前缀，避免后端重复接收 /api
-          rewrite: (requestPath) =>
-            requestPath.replace(new RegExp(`^${env.VITE_API_PREFIX || '/api'}`), ''),
+        },
+        '/auth': {
+          target: proxyTarget,
+          changeOrigin: true,
         },
       },
     },
