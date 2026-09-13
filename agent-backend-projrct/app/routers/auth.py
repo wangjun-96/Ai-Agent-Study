@@ -1,26 +1,34 @@
 """路由层：认证模块接口入口（注册、登录、令牌刷新、当前登录用户）。
 
 - 注册 / 登录 / 刷新为匿名公开接口（鉴权白名单），供未登录用户调用；
+- 注册接口为 multipart/form-data：username/password 文本字段 + 可选 avatar 头像文件，
+  建号与头像保存一个请求完成，无需先登录再二次上传；
 - /auth/me 挂载 get_current_user 依赖，是 JWT 保护接口的标准用法；
 - 注册接口统一挂载固定窗口限流依赖（IP 维度，默认 5 次/分钟），防止被刷；
 - 入口仅做参数接收、路由分发，认证与令牌逻辑均在业务层 AuthService 完成。
 """
-from fastapi import APIRouter, Depends, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 
 from app.core import success
 from app.core.rate_limit import rate_limit_register
 from app.core.responses import ApiResponse
 from app.db.models import User
-from app.routers.v1.deps import get_current_user, get_user_service
+from app.routers.v1.deps import (
+    get_current_user,
+    get_file_service,
+    get_user_service,
+)
 from app.schemas.auth import (
     AccessTokenResponse,
     LoginRequest,
     RefreshTokenRequest,
-    RegisterRequest,
     TokenResponse,
 )
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
+from app.services.file_service import FileService
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/auth", tags=["认证鉴权"])
@@ -34,16 +42,20 @@ _VALIDATION_ERROR_DOC = {
 
 def get_auth_service(
     user_service: UserService = Depends(get_user_service),
+    file_service: FileService = Depends(get_file_service),
 ) -> AuthService:
-    """构造认证业务服务，复用用户服务依赖链（DAO/Session 注入）。"""
-    return AuthService(user_service)
+    """构造认证业务服务，复用用户/文件服务依赖链（DAO/Session 注入）。"""
+    return AuthService(user_service, file_service)
 
 
 @router.post(
     "/register",
     summary="用户注册",
     description=(
-        "外部用户自助注册，无需鉴权。\n\n"
+        "外部用户自助注册，无需鉴权，请求体为 **multipart/form-data**。\n\n"
+        "- 表单字段 `username`、`password` 为必填文本，`avatar` 为**可选**头像图片文件；\n"
+        "- 头像仅接受图片（jpg/jpeg/png/gif/webp/bmp），随注册请求一并保存并写入 "
+        "users.avatar，不传头像也可正常注册；\n"
         "- 弱密码校验：命中常见弱密码黑名单 / 必须同时包含字母和数字 / 禁止包含用户名；\n"
         "- 密码经 bcrypt 哈希后入库，响应不返回密码；\n"
         "- 接口限流：固定窗口按客户端 IP 计数，默认 5 次/分钟，超限返回 429。"
@@ -54,7 +66,10 @@ def get_auth_service(
     responses={
         400: {
             "model": ApiResponse,
-            "description": "业务失败：密码强度不足(40002) 或 用户名已存在(40001)",
+            "description": (
+                "业务失败：密码强度不足(40002) / 用户名已存在(40001) / "
+                "头像类型不支持(40003) / 头像超 10MB(40004) / 头像为空文件(40005)"
+            ),
         },
         422: {"model": ApiResponse, "description": "请求参数校验失败(42200)"},
         429: {
@@ -65,17 +80,31 @@ def get_auth_service(
     # 接口限流：固定窗口 + IP 维度，默认 5 次/分钟，超限返回 429
     dependencies=[Depends(rate_limit_register)],
 )
-def register(
-    user_in: RegisterRequest,
+async def register(
+    # 表单文本字段：长度约束与 UserCreate（Pydantic 模型）保持一致
+    username: Annotated[
+        str,
+        Form(min_length=2, max_length=50, description="用户名"),
+    ],
+    password: Annotated[
+        str,
+        Form(min_length=6, max_length=128, description="密码（明文传输，依赖 HTTPS 保护）"),
+    ],
+    # 可选头像：不传 / 传空字符串时为 None，仅创建文本账号；传文件时随注册一并保存
+    avatar: Annotated[
+        UploadFile | None,
+        File(description="可选头像图片（jpg/jpeg/png/gif/webp/bmp，≤10MB）"),
+    ] = None,
     service: AuthService = Depends(get_auth_service),
 ) -> dict:
-    """用户注册。
+    """用户注册：multipart 表单提交用户名、密码与可选头像。
 
     - 弱密码校验：黑名单 + 必须同时包含字母和数字 + 禁止包含用户名；
     - 密码经 bcrypt 哈希后入库，禁止明文存储；
-    - 用户名重复返回 400，触发限流返回 429。
+    - 头像文件先校验后落盘，文件非法（类型/大小/空）时不会创建用户；
+    - 用户名重复返回 400，头像不合法返回 400(40003~40005)，触发限流返回 429。
     """
-    user = service.register(user_in)
+    user = await service.register(username, password, avatar)
     return success(UserResponse.model_validate(user).model_dump(), "注册成功")
 
 

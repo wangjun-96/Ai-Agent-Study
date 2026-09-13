@@ -13,6 +13,22 @@ export const DEFAULT_TAB_PATH = '/interview'
 /** 登录页路径（路由守卫、退出登录、登录态失效跳转统一引用） */
 export const LOGIN_PATH = '/login'
 
+/** 品牌 Logo（登录页品牌区与顶部导航共用） */
+export const BRAND_LOGO_URL =
+  'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=' +
+  encodeURIComponent(
+    'cute minimalist app logo icon, friendly robot wearing a graduation cap, golden yellow color, flat vector style, solid white background, centered symmetrical, no text',
+  ) +
+  '&image_size=square_hd'
+
+/** 注册页默认头像占位图（后端头像上传接口就绪前使用） */
+export const DEFAULT_AVATAR_URL =
+  'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=' +
+  encodeURIComponent(
+    'default user avatar, minimalist cartoon portrait of a smiling young person, warm golden yellow and soft gray colors, plain light cream background, centered head and shoulders, friendly flat illustration, no text',
+  ) +
+  '&image_size=square_hd'
+
 /** 学习室输入区功能按钮配置 */
 export const STUDY_INPUT_ACTIONS: InputAction[] = [
   { key: 'upload', label: '上传文件', icon: 'Upload' },

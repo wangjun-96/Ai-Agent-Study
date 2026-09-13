@@ -2,9 +2,9 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CaretBottom, School, SwitchButton, UserFilled } from '@element-plus/icons-vue'
+import { CaretBottom, SwitchButton, UserFilled } from '@element-plus/icons-vue'
 import TabSwitch from '@/components/common/TabSwitch.vue'
-import { LOGIN_PATH, TAB_LIST } from '@/config/constant'
+import { BRAND_LOGO_URL, LOGIN_PATH, TAB_LIST } from '@/config/constant'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
@@ -54,11 +54,9 @@ async function handleLogout(): Promise<void> {
 
 <template>
   <header class="app-header">
-    <!-- 第一列：Logo + 项目名称（宽度对齐侧边栏） -->
+    <!-- 第一列：小 Logo + 项目名称（宽度对齐侧边栏），点击回到面试间 -->
     <div class="brand" @click="handleTabChange('/interview')">
-      <span class="brand-logo">
-        <el-icon :size="22" color="#ffffff"><School /></el-icon>
-      </span>
+      <img class="brand-logo" :src="BRAND_LOGO_URL" alt="学面通AI Logo" />
       <span class="brand-name">学面通AI</span>
     </div>
 
@@ -78,7 +76,8 @@ async function handleLogout(): Promise<void> {
     >
       <div class="user-entry">
         <span class="user-avatar">
-          <el-icon :size="18"><UserFilled /></el-icon>
+          <img v-if="userStore.avatarUrl" :src="userStore.avatarUrl" alt="用户头像" />
+          <el-icon v-else :size="18"><UserFilled /></el-icon>
         </span>
         <span class="user-name" :title="displayName">{{ displayName }}</span>
         <el-icon class="user-arrow" :size="12"><CaretBottom /></el-icon>
@@ -121,13 +120,11 @@ async function handleLogout(): Promise<void> {
 }
 
 .brand-logo {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  background: $color-primary;
+  object-fit: cover;
+  box-shadow: 0 1px 6px rgba(251, 197, 49, 0.35);
 }
 
 .brand-name {
@@ -165,9 +162,16 @@ async function handleLogout(): Promise<void> {
   justify-content: center;
   width: 30px;
   height: 30px;
+  overflow: hidden;
   border-radius: 50%;
   color: $color-primary-hover;
   background: $color-primary-light;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
 }
 
 .user-name {

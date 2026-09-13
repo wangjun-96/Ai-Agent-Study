@@ -54,8 +54,31 @@ export interface UserInfo {
   id: number
   /** 用户名 */
   username: string
+  /** 头像访问地址（/uploads/{user_id}/{md5}.ext，未设置时为 null） */
+  avatar?: string | null
   /** 创建时间（ISO 时间字符串） */
   create_time: string
+}
+
+/** 通用文件上传的业务分类 */
+export type UploadFileType = 'image' | 'document'
+
+/** 通用文件上传成功返回数据（图片类型时后端已同步更新用户 avatar） */
+export interface FileUploadResult {
+  /** 文件访问 URL（/uploads 前缀的相对路径，由 Vite 代理透传） */
+  url: string
+  /** 文件业务分类：image=图片（已更新头像），document=文档（仅保存） */
+  file_type: UploadFileType
+  /** 本次上传是否更新了当前用户头像 */
+  is_avatar: boolean
+  /** 客户端原始文件名 */
+  original_name: string
+  /** 实际存储文件名（内容 MD5 + 扩展名） */
+  stored_name: string
+  /** 文件 MIME 类型 */
+  content_type?: string | null
+  /** 文件大小（字节） */
+  size: number
 }
 
 /** 后端字段级校验错误明细（422 时位于响应体 detail.errors 中） */

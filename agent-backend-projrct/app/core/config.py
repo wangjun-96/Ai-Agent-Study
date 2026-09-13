@@ -75,6 +75,14 @@ class Settings(BaseSettings):
     # 单层 Nginx/网关部署填 1，两层代理填 2
     TRUSTED_PROXY_HOPS: int = 0
 
+    # 文件上传：本地存储根目录（相对路径相对于项目根目录解析），
+    # 实际上传文件按 uploads/{user_id}/ 分用户目录存放
+    UPLOAD_DIR: str = "uploads"
+    # 上传文件访问 URL 前缀，与 main.py 中 StaticFiles 挂载路径保持一致
+    UPLOAD_URL_PREFIX: str = "/uploads"
+    # 单个上传文件大小上限（字节），默认 10MB，超限返回业务错误 40004
+    UPLOAD_MAX_SIZE: int = 10 * 1024 * 1024
+
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),
         env_file_encoding="utf-8",
@@ -86,6 +94,12 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """是否为生产环境，便于按环境切换行为。"""
         return self.APP_ENV == ENV_PRODUCTION
+
+    @property
+    def upload_root(self) -> Path:
+        """上传文件存储根目录绝对路径：相对路径基于项目根目录解析。"""
+        path = Path(self.UPLOAD_DIR)
+        return path if path.is_absolute() else (PROJECT_ROOT / path)
 
 
 @lru_cache

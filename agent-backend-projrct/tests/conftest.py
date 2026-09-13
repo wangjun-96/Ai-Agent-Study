@@ -93,7 +93,8 @@ def login_user(client):
     ) -> tuple[dict, int]:
         register_resp = client.post(
             "/auth/register",
-            json={"username": username, "password": password},
+            # 注册接口为 multipart 表单：文本字段用 data 提交（avatar 可选，不传即可）
+            data={"username": username, "password": password},
         )
         assert register_resp.status_code == 201, register_resp.text
         user_id = register_resp.json()["data"]["id"]

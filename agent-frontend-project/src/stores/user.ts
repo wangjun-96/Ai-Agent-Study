@@ -25,6 +25,9 @@ export const useUserStore = defineStore('user', () => {
   /** 当前登录用户信息（登录后通过 /auth/me 拉取） */
   const userInfo = ref<UserInfo | null>(null)
 
+  /** 当前头像访问地址（后端 /uploads 路径，由 /auth/me 或上传接口返回） */
+  const avatarUrl = ref<string>('')
+
   // ==================== 计算属性 ====================
 
   /** 是否已登录（以访问令牌是否存在为准，刷新流程由请求拦截器负责） */
@@ -46,6 +49,8 @@ export const useUserStore = defineStore('user', () => {
   async function fetchCurrentUser(): Promise<UserInfo> {
     const res = await getCurrentUser()
     userInfo.value = res.data
+    // 头像以服务端记录为准（图片上传成功后后端回写 avatar 字段）
+    avatarUrl.value = res.data.avatar ?? ''
     return res.data
   }
 
@@ -56,9 +61,12 @@ export const useUserStore = defineStore('user', () => {
     await fetchCurrentUser()
   }
 
-  /** 注册：仅完成账号创建，注册成功后由页面直接调用 login 自动登录 */
-  async function register(params: RegisterParams): Promise<UserInfo> {
-    const res = await registerApi(params)
+  /**
+   * 注册：multipart 单请求完成建号与可选头像保存（头像随注册表单提交，无需先登录）。
+   * 注册成功后由页面直接调用 login 自动登录，再经 /auth/me 拉取含头像的用户信息。
+   */
+  async function register(params: RegisterParams, avatar?: File | null): Promise<UserInfo> {
+    const res = await registerApi(params, avatar)
     return res.data
   }
 
@@ -67,6 +75,7 @@ export const useUserStore = defineStore('user', () => {
     accessToken.value = ''
     refreshToken.value = ''
     userInfo.value = null
+    avatarUrl.value = ''
     clearTokens()
   }
 
@@ -79,6 +88,7 @@ export const useUserStore = defineStore('user', () => {
     accessToken,
     refreshToken,
     userInfo,
+    avatarUrl,
     isLoggedIn,
     username,
     saveTokens,

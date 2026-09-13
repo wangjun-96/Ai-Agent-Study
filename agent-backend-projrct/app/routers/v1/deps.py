@@ -17,6 +17,7 @@ from app.db.database import get_db
 from app.db.models import User
 from app.enums.response_code import ResponseCode
 from app.enums.token_type import TokenType
+from app.services.file_service import FileService
 from app.services.user_service import UserService
 
 # Bearer 令牌提取器：从 Authorization 头解析 access token。
@@ -35,6 +36,13 @@ def get_user_dao(db: Session = Depends(get_db)) -> UserDao:
 def get_user_service(user_dao: UserDao = Depends(get_user_dao)) -> UserService:
     """构造用户业务服务，注入 DAO。"""
     return UserService(user_dao)
+
+
+def get_file_service(
+    user_service: UserService = Depends(get_user_service),
+) -> FileService:
+    """构造文件上传业务服务，复用用户服务依赖链（头像回写共用 DAO/事务）。"""
+    return FileService(user_service)
 
 
 def get_current_user(

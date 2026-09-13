@@ -1,21 +1,11 @@
 """校验层：认证模块的请求/响应模型。
 
-- 注册请求复用 UserCreate 的字段结构与长度约束，注册专属的弱密码业务规则
-  （黑名单、字母+数字、禁止包含用户名）在业务层 AuthService 中校验。
-- 登录/刷新请求体全部结构化定义，禁止裸参接收。
+- 注册请求为 multipart/form-data（username/password 文本字段 + 可选 avatar 文件），
+  由路由层 Form/File 依赖结构化接收，弱密码业务规则在 AuthService 中校验；
+- 登录/刷新请求体全部结构化定义，禁止裸参接收；
 - 令牌响应只返回令牌字符串与有效期等非敏感信息，绝不返回用户密码。
 """
 from pydantic import BaseModel, Field
-
-from app.schemas.user import UserCreate
-
-
-class RegisterRequest(UserCreate):
-    """注册请求体：字段同用户创建（username/password），复用其 Pydantic 约束。
-
-    继承 UserCreate 后可直接传入 UserService.create_user，无需重复定义字段；
-    独立类型便于注册接口在 Swagger 中语义化展示及后续扩展注册专属字段。
-    """
 
 
 class LoginRequest(BaseModel):

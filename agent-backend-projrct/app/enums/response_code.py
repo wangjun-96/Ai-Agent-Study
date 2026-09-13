@@ -26,6 +26,10 @@ class ResponseCode(IntEnum):
     # 通用请求错误 400xx
     USER_ALREADY_EXISTS = 40001
     WEAK_PASSWORD = 40002
+    # 文件上传相关
+    FILE_TYPE_NOT_ALLOWED = 40003  # 文件类型不在允许列表
+    FILE_TOO_LARGE = 40004  # 文件大小超过上限
+    FILE_EMPTY = 40005  # 上传文件为空
 
     # 参数校验相关 422xx（与 HTTP 422 Unprocessable Entity 对齐）
     PARAM_INVALID = 42200
@@ -52,6 +56,9 @@ CODE_MESSAGES: dict[ResponseCode, str] = {
     ResponseCode.PARAM_INVALID: "请求参数校验失败",
     ResponseCode.USER_ALREADY_EXISTS: "用户名已存在",
     ResponseCode.WEAK_PASSWORD: "密码强度不足",
+    ResponseCode.FILE_TYPE_NOT_ALLOWED: "不支持的文件类型",
+    ResponseCode.FILE_TOO_LARGE: "上传文件大小超出限制",
+    ResponseCode.FILE_EMPTY: "上传文件不能为空",
     ResponseCode.USER_NOT_FOUND: "用户不存在",
     ResponseCode.RATE_LIMITED: "请求过于频繁，请稍后再试",
     ResponseCode.SYSTEM_ERROR: "系统繁忙，请稍后再试",

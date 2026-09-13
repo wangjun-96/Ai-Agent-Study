@@ -28,7 +28,8 @@ def _register(client, username: str = _USERNAME, password: str = _PASSWORD) -> s
     """注册测试用户并返回用户ID。"""
     resp = client.post(
         "/auth/register",
-        json={"username": username, "password": password},
+        # 注册接口为 multipart 表单：文本字段用 data 提交（avatar 可选，不传即可）
+        data={"username": username, "password": password},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["data"]["id"]

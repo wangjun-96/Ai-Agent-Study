@@ -19,6 +19,7 @@ class User(Base):
     - id          ：自增主键
     - username    ：用户名，唯一非空，建立索引加速唯一性校验
     - password    ：密码哈希（bcrypt），不保留明文
+    - avatar      ：头像访问 URL，注册/上传图片后回写，未设置为空
     - create_time ：创建时间，由数据库 server_default=now() 自动填充
     """
 
@@ -32,6 +33,10 @@ class User(Base):
     )
     # 密码哈希存储
     password: Mapped[str] = mapped_column(String(128), nullable=False, comment="密码哈希")
+    # 头像访问 URL：图片上传接口保存文件成功后回写，未上传头像时为空
+    avatar: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="头像访问URL"
+    )
     # 创建时间：由数据库自动填充当前时间
     create_time: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False, comment="创建时间"

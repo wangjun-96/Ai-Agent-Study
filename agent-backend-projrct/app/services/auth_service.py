@@ -1,12 +1,14 @@
 """业务层：认证模块业务逻辑。
 
 - Service 只处理业务逻辑，数据操作复用 UserService（进而走 DAO 层），不直接操作 Session。
-- 注册流程：先做弱密码校验，再复用 UserService.create_user 完成唯一性校验与入库，
-  密码哈希、用户名重复等逻辑无需重复实现。
+- 注册流程：先做弱密码校验，并预校验可选头像文件，再复用 UserService.create_user
+  完成唯一性校验与入库；建号成功后落盘头像并回写 avatar（multipart 单请求提交）。
 - 登录流程：按用户名查库 + bcrypt 校验密码，通过后用 PyJWT 签发 Access/Refresh 双令牌。
 - 刷新流程：校验 Refresh Token 合法后重新签发 Access Token，实现访问令牌过期无感续期。
 - 业务错误统一抛 BusinessException，由全局异常处理器捕获。
 """
+from fastapi import UploadFile
+
 from app.core import BusinessException, get_logger, settings
 from app.core.jwt import (
     create_access_token,
@@ -16,42 +18,70 @@ from app.core.jwt import (
 from app.db.models import User
 from app.enums.response_code import ResponseCode
 from app.enums.token_type import TokenType
-from app.schemas.auth import (
-    AccessTokenResponse,
-    RegisterRequest,
-    TokenResponse,
-)
+from app.schemas.auth import AccessTokenResponse, TokenResponse
+from app.schemas.user import UserCreate
 from app.security import validate_password_strength, verify_password
+from app.services.file_service import FileService, PreparedUpload
 from app.services.user_service import UserService
 
 logger = get_logger("auth_service")
 
 
 class AuthService:
-    """认证业务服务：通过构造函数注入 UserService，复用其用户数据能力。"""
+    """认证业务服务：注入 UserService / FileService，复用用户数据与文件存储能力。"""
 
-    def __init__(self, user_service: UserService) -> None:
+    def __init__(
+        self,
+        user_service: UserService,
+        file_service: FileService,
+    ) -> None:
         self.user_service = user_service
+        self.file_service = file_service
 
-    def register(self, user_in: RegisterRequest) -> User:
-        """用户注册：弱密码校验通过后，复用 UserService.create_user 入库。
+    async def register(
+        self,
+        username: str,
+        password: str,
+        avatar: UploadFile | None = None,
+    ) -> User:
+        """用户注册：multipart 表单一次提交用户名、密码与可选头像。
 
-        :param user_in: 注册请求（username/password 已通过 Pydantic 结构校验）
-        :return: 新创建的用户 ORM 实例（密码为 bcrypt 哈希，不含明文）
+        处理顺序保证非法头像不会产生孤儿账号：
+        1. 弱密码业务校验（黑名单 / 字母+数字 / 禁止包含用户名）；
+        2. 头像文件预校验（仅图片、空文件 / 大小 / 类型校验），此时不落盘不写库；
+        3. UserService.create_user 完成用户名唯一性校验与 bcrypt 哈希入库；
+        4. 建号成功后头像落盘 uploads/{user_id}/ 并回写 users.avatar。
+
+        :param username: 用户名（长度 2-50，已由 Form 依赖结构校验）
+        :param password: 明文密码（长度 6-128，已由 Form 依赖结构校验）
+        :param avatar: 可选头像图片文件，不传则仅创建文本账号
+        :return: 新创建的用户 ORM 实例（含头像 URL，密码为 bcrypt 哈希）
         """
         # 弱密码业务校验：黑名单 / 字母+数字 / 禁止包含用户名
         try:
-            validate_password_strength(user_in.password, user_in.username)
+            validate_password_strength(password, username)
         except ValueError as exc:
-            logger.info("注册失败：弱密码 username={} reason={}", user_in.username, exc)
+            logger.info("注册失败：弱密码 username={} reason={}", username, exc)
             raise BusinessException(
                 ResponseCode.WEAK_PASSWORD,
                 message=str(exc),
-                detail=f"username={user_in.username}",
+                detail=f"username={username}",
             ) from exc
 
+        # 先预校验并读入头像（不落盘、不写库）：文件非法时直接失败，不会创建用户
+        prepared_avatar: PreparedUpload | None = None
+        if avatar is not None:
+            prepared_avatar = await self.file_service.prepare_avatar(avatar)
+
         # 复用用户服务：内部完成用户名唯一性校验与 bcrypt 哈希入库
-        return self.user_service.create_user(user_in)
+        user = self.user_service.create_user(
+            UserCreate(username=username, password=password)
+        )
+
+        # 建号成功后再落盘头像并回写 avatar 字段
+        if prepared_avatar is not None:
+            self.file_service.commit_avatar(user, prepared_avatar)
+        return user
 
     def login(self, username: str, password: str) -> TokenResponse:
         """用户登录：校验用户名与密码，通过后签发 Access/Refresh 双令牌。

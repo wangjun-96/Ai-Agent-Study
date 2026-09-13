@@ -5,15 +5,26 @@
 2. 用户增删改查全链路：登录获取 JWT → 创建 → 查询列表 → 查询详情 → 更新 → 删除。
 3. 鉴权分支：用户接口未登录统一 401(40104)；业务异常分支：用户不存在(404)、
    用户名重复(400)、参数校验失败(422)。
-4. 注册接口：注册成功且密码 bcrypt 哈希入库、弱密码校验(400)、限流(429)。
+4. 注册接口：注册成功且密码 bcrypt 哈希入库、弱密码校验(400)、限流(429)；
+   multipart 表单可选头像：带头像注册成功落盘并回写 avatar，头像非法拒绝且不建号。
 
 运行命令：pytest tests/test_smoke.py -v
 """
+import base64
+import hashlib
+
 import pytest
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.db.models import User
 from app.security import verify_password
+
+# 1x1 像素合法 PNG，用于注册头像上传用例（内容固定，MD5 可直接推导）
+_PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLv"
+    "AAAAAElFTkSuQmCC"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +263,7 @@ class TestAuthRegister:
         """注册成功：返回 201，响应不含密码，库里存的是 bcrypt 哈希而非明文。"""
         resp = client.post(
             "/auth/register",
-            json={"username": "newuser", "password": "Goodpass1"},
+            data={"username": "newuser", "password": "Goodpass1"},
         )
         assert resp.status_code == 201
         body = resp.json()
@@ -277,7 +288,7 @@ class TestAuthRegister:
         """弱密码黑名单：命中常见弱密码返回 400，业务码 40002。"""
         resp = client.post(
             "/auth/register",
-            json={"username": "tester", "password": weak_password},
+            data={"username": "tester", "password": weak_password},
         )
         assert resp.status_code == 400
         body = resp.json()
@@ -289,7 +300,7 @@ class TestAuthRegister:
         """组合复杂度：纯字母或纯数字密码返回 400，提示必须同时包含字母和数字。"""
         resp = client.post(
             "/auth/register",
-            json={"username": "tester", "password": weak_password},
+            data={"username": "tester", "password": weak_password},
         )
         assert resp.status_code == 400
         body = resp.json()
@@ -300,7 +311,7 @@ class TestAuthRegister:
         """关联性：密码包含用户名返回 400。"""
         resp = client.post(
             "/auth/register",
-            json={"username": "alice", "password": "alice123"},
+            data={"username": "alice", "password": "alice123"},
         )
         assert resp.status_code == 400
         body = resp.json()
@@ -310,10 +321,10 @@ class TestAuthRegister:
     def test_register_duplicate_username(self, client):
         """注册重复用户名：复用 create_user 的唯一性校验，返回 400，业务码 40001。"""
         client.post(
-            "/auth/register", json={"username": "alice", "password": "Goodpass1"}
+            "/auth/register", data={"username": "alice", "password": "Goodpass1"}
         )
         resp = client.post(
-            "/auth/register", json={"username": "alice", "password": "Anotherpass2"}
+            "/auth/register", data={"username": "alice", "password": "Anotherpass2"}
         )
         assert resp.status_code == 400
         assert resp.json()["code"] == 40001
@@ -322,7 +333,7 @@ class TestAuthRegister:
         """参数校验：密码短于 6 位属于格式错误，返回 422。"""
         resp = client.post(
             "/auth/register",
-            json={"username": "alice", "password": "a1"},
+            data={"username": "alice", "password": "a1"},
         )
         assert resp.status_code == 422
         assert resp.json()["code"] == 42200
@@ -333,13 +344,13 @@ class TestAuthRegister:
         for index in range(1, 6):
             resp = client.post(
                 "/auth/register",
-                json={"username": f"user{index}", "password": f"Pass{index}word"},
+                data={"username": f"user{index}", "password": f"Pass{index}word"},
             )
             assert resp.status_code == 201
         # 第 6 次触发固定窗口限流
         resp = client.post(
             "/auth/register",
-            json={"username": "user6", "password": "Pass6word"},
+            data={"username": "user6", "password": "Pass6word"},
         )
         assert resp.status_code == 429
         body = resp.json()
@@ -349,3 +360,90 @@ class TestAuthRegister:
         retry_after = int(resp.headers["Retry-After"])
         assert 1 <= retry_after <= 60
         assert body["detail"]["retry_after_seconds"] == retry_after
+
+    def test_register_without_avatar_returns_null_avatar(self, client):
+        """不传头像注册：正常建号，响应 avatar 为 null。"""
+        resp = client.post(
+            "/auth/register",
+            data={"username": "noavatar", "password": "Goodpass1"},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["data"]["avatar"] is None
+
+    def test_register_with_avatar_saves_file_and_updates_avatar(
+        self, client, db_session, monkeypatch, tmp_path
+    ):
+        """带头像注册：201 建号 + 头像按 uploads/{user_id}/{md5}.png 落盘 + avatar 回写。"""
+        # 上传目录重定向到临时目录，避免测试产物污染项目 uploads/
+        monkeypatch.setattr(settings, "UPLOAD_DIR", str(tmp_path))
+
+        resp = client.post(
+            "/auth/register",
+            data={"username": "avataruser", "password": "Goodpass1"},
+            files={"avatar": ("my-avatar.png", _PNG_BYTES, "image/png")},
+        )
+        assert resp.status_code == 201, resp.text
+        user = resp.json()["data"]
+        user_id = user["id"]
+
+        # 响应头像 URL 符合 uploads/{user_id}/{md5}.png 规则
+        stored_name = f"{hashlib.md5(_PNG_BYTES).hexdigest()}.png"
+        expected_url = f"/uploads/{user_id}/{stored_name}"
+        assert user["avatar"] == expected_url
+
+        # 文件确实落盘，内容与上传字节一致（MD5 去重命名）
+        stored_path = tmp_path / str(user_id) / stored_name
+        assert stored_path.exists()
+        assert stored_path.read_bytes() == _PNG_BYTES
+
+        # 数据库 users.avatar 已回写
+        db_user = db_session.scalars(
+            select(User).where(User.username == "avataruser")
+        ).first()
+        assert db_user is not None
+        assert db_user.avatar == expected_url
+
+        # 自动登录后 /auth/me 返回的头像与注册响应一致
+        login_resp = client.post(
+            "/auth/login",
+            json={"username": "avataruser", "password": "Goodpass1"},
+        )
+        token = login_resp.json()["data"]["access_token"]
+        me_resp = client.get(
+            "/auth/me", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert me_resp.status_code == 200
+        assert me_resp.json()["data"]["avatar"] == expected_url
+
+    def test_register_with_non_image_avatar_rejected(self, client, db_session):
+        """头像为文档类型：返回 400(40003)，且不创建用户（无孤儿账号）。"""
+        resp = client.post(
+            "/auth/register",
+            data={"username": "badavatar", "password": "Goodpass1"},
+            files={"avatar": ("note.txt", b"hello world", "text/plain")},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 40003
+
+        # 用户未创建：同一用户名随后不带头像可正常注册成功
+        assert db_session.scalars(
+            select(User).where(User.username == "badavatar")
+        ).first() is None
+        retry_resp = client.post(
+            "/auth/register",
+            data={"username": "badavatar", "password": "Goodpass1"},
+        )
+        assert retry_resp.status_code == 201
+
+    def test_register_with_empty_avatar_rejected(self, client, db_session):
+        """头像为空文件：返回 400(40005)，且不创建用户。"""
+        resp = client.post(
+            "/auth/register",
+            data={"username": "emptyavatar", "password": "Goodpass1"},
+            files={"avatar": ("empty.png", b"", "image/png")},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 40005
+        assert db_session.scalars(
+            select(User).where(User.username == "emptyavatar")
+        ).first() is None

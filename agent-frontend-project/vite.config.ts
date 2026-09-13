@@ -26,13 +26,17 @@ export default defineConfig(({ mode }) => {
       port: Number(env.VITE_PORT) || 5173,
       open: true,
       // 跨域代理：后端认证接口为 /auth/*，业务接口为 /api/v1/*，
-      // 两类路径均原样透传（不做 rewrite），由后端按真实路径接收
+      // 上传文件静态资源为 /uploads/*，三类路径均原样透传（不做 rewrite）
       proxy: {
         [env.VITE_API_PREFIX || '/api']: {
           target: proxyTarget,
           changeOrigin: true,
         },
         '/auth': {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
+        '/uploads': {
           target: proxyTarget,
           changeOrigin: true,
         },

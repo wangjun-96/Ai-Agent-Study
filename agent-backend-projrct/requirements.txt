@@ -34,6 +34,9 @@ python-dotenv==1.0.1
 # 日志体系：控制台彩色输出 + 文件滚动留痕，替代标准库 logging
 loguru==0.7.2
 
+# 表单/文件上传解析（multipart/form-data），FastAPI UploadFile 依赖
+python-multipart
+
 # HTTP 客户端，用于编写接口冒烟测试
 httpx
 

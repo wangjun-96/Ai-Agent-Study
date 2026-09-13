@@ -81,6 +81,17 @@ class UserService:
             self.user_dao.update_user(existing, update_data)
         return self.user_dao.get_user(user_id)  # type: ignore[return-value]
 
+    def update_avatar(self, user: User, avatar_url: str) -> User:
+        """更新用户头像访问 URL（图片文件保存成功后由文件上传业务调用）。
+
+        :param user: 已查询到的当前登录用户 ORM 实例
+        :param avatar_url: 头像文件访问 URL（/uploads/{user_id}/{md5}.ext）
+        :return: 更新后的 user
+        """
+        updated = self.user_dao.update_user(user, {"avatar": avatar_url})
+        logger.info("用户头像更新成功 id={} avatar={}", user.id, avatar_url)
+        return updated
+
     def delete_user(self, user_id: int) -> None:
         """删除用户，不存在抛业务异常。"""
         user = self.user_dao.get_user(user_id)

@@ -2,12 +2,13 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.core import register_exception_handlers, settings, setup_logging
 from app.core.logger import get_logger
 from app.routers.auth import router as auth_router
 from app.routers.health import router as health_router
-from app.routers.v1 import users
+from app.routers.v1 import files, users
 
 # 初始化日志（控制台 + 按天滚动文件 + 错误文件，级别随环境配置）
 setup_logging()
@@ -46,6 +47,18 @@ app.include_router(auth_router)
 # 业务路由：统一前缀 /api/v1；各业务路由组内部通过 dependencies 统一挂载 JWT
 # 登录鉴权，未登录请求统一返回 401，后续新增业务路由在组内自动纳入保护
 app.include_router(users.router, prefix="/api/v1")
+
+# 文件上传业务路由：统一前缀 /api/v1，路由组内部统一挂载 JWT 登录鉴权
+app.include_router(files.router, prefix="/api/v1")
+
+# 上传文件静态资源服务：/uploads/{user_id}/{md5}.ext
+# StaticFiles 要求目录必须存在，启动时确保上传根目录已创建
+settings.upload_root.mkdir(parents=True, exist_ok=True)
+app.mount(
+    settings.UPLOAD_URL_PREFIX,
+    StaticFiles(directory=str(settings.upload_root)),
+    name="uploads",
+)
 
 
 @app.get("/", summary="健康检查")

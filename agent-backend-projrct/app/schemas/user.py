@@ -25,9 +25,10 @@ class UserUpdate(BaseModel):
 
 
 class UserResponse(BaseModel):
-    """用户响应模型，仅暴露 id、username 与创建时间，不返回密码。"""
+    """用户响应模型，仅暴露 id、username、头像与创建时间，不返回密码。"""
     id: int = Field(..., description="用户ID")
     username: str = Field(..., description="用户名")
+    avatar: str | None = Field(None, description="头像访问 URL，未设置时为 null")
     create_time: datetime = Field(..., description="创建时间")
 
     # 允许从 ORM/字典对象的属性直接构造
