@@ -223,32 +223,32 @@ logger.error("系统异常：{}", exc)
 | GET | `/docs` | Swagger UI 接口文档 | 否 | 200 |
 | GET | `/redoc` | ReDoc 接口文档 | 否 | 200 |
 | GET | `/openapi.json` | OpenAPI 元数据 | 否 | 200 |
-| POST | `/auth/register` | 用户注册（弱密码校验 + bcrypt 哈希 + IP 限流 5/min） | 否 | 201 |
-| POST | `/auth/login` | 登录，返回 Access/Refresh 双令牌 | 否 | 200 |
-| POST | `/auth/refresh` | 刷新令牌过期后，用 Refresh Token 换新 Access Token | 否（凭刷新令牌） | 200 |
-| GET | `/auth/me` | 获取当前登录用户信息 | 是（JWT） | 200 |
+| POST | `/api/v1/auth/register` | 用户注册（弱密码校验 + bcrypt 哈希 + IP 限流 5/min） | 否 | 201 |
+| POST | `/api/v1/auth/login` | 登录，返回 Access/Refresh 双令牌 | 否 | 200 |
+| POST | `/api/v1/auth/refresh` | 刷新令牌过期后，用 Refresh Token 换新 Access Token | 否（凭刷新令牌） | 200 |
+| GET | `/api/v1/auth/me` | 获取当前登录用户信息 | 是（JWT） | 200 |
 | POST | `/api/v1/users/` | 创建用户 | 是（JWT） | 201 |
 | GET | `/api/v1/users/` | 查询用户列表 | 是（JWT） | 200 |
 | GET | `/api/v1/users/{user_id}` | 查询单个用户 | 是（JWT） | 200 |
 | PUT | `/api/v1/users/{user_id}` | 更新用户 | 是（JWT） | 200 |
 | DELETE | `/api/v1/users/{user_id}` | 删除用户 | 是（JWT） | 200 |
 
-> **鉴权白名单**：`/health`、文档接口与 `/auth/register`、`/auth/login`、`/auth/refresh` 不挂登录鉴权，供监控探活与匿名认证使用；
+> **鉴权白名单**：`/health`、文档接口与 `/api/v1/auth/register`、`/api/v1/auth/login`、`/api/v1/auth/refresh` 不挂登录鉴权，供监控探活与匿名认证使用；
 > 其余业务接口（含全部 `/api/v1/*`）统一要求登录，在请求头携带 `Authorization: Bearer <access_token>`，
 > 缺失/过期/伪造令牌统一返回 401(40104)。
 
 ### 鉴权流程（JWT 双令牌 + 无感刷新）
 
-1. `POST /auth/login` 登录成功，拿到 `access_token`（默认 30 分钟）与 `refresh_token`（默认 7 天）；
+1. `POST /api/v1/auth/login` 登录成功，拿到 `access_token`（默认 30 分钟）与 `refresh_token`（默认 7 天）；
 2. 后续业务请求在请求头携带 `Authorization: Bearer <access_token>`；
-3. 访问令牌过期时接口返回 401(40104)，前端调用 `POST /auth/refresh`（请求体携带 `refresh_token`）换取新的访问令牌；
+3. 访问令牌过期时接口返回 401(40104)，前端调用 `POST /api/v1/auth/refresh`（请求体携带 `refresh_token`）换取新的访问令牌；
 4. 用新令牌自动重试原请求，全程无需用户重新登录；刷新令牌也失效（40105）时再跳转登录页。
 
 ### 请求示例
 
 ```powershell
 # 1. 登录获取令牌
-$login = Invoke-RestMethod -Uri "http://127.0.0.1:8000/auth/login" `
+$login = Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/auth/login" `
   -Method Post -ContentType "application/json" `
   -Body '{"username":"alice","password":"Goodpass1"}'
 
@@ -259,7 +259,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/users/" `
   -Body '{"username":"bob","password":"secret123"}'
 
 # 3. 访问令牌过期后，用刷新令牌换新
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/auth/refresh" `
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/auth/refresh" `
   -Method Post -ContentType "application/json" `
   -Body (@{ refresh_token = $login.data.refresh_token } | ConvertTo-Json)
 ```
@@ -354,7 +354,7 @@ alembic upgrade head
 | 健康检查 | 2 | `/health` 服务存活 + 数据库连通性；`/docs`、`/redoc`、`/openapi.json` 文档可访问性 |
 | 用户 CRUD | 5 | 登录获取 JWT → 创建 → 查询列表 → 查询详情 → 更新 → 删除全链路 |
 | 登录鉴权 | 5 | 用户接口五种 HTTP 方法未登录统一 401(40104) |
-| 登录/JWT | 18 | `test_auth_login.py`：登录、令牌载荷、`/auth/me` 保护、刷新换新、过期自动刷新重试闭环 |
+| 登录/JWT | 18 | `test_auth_login.py`：登录、令牌载荷、`/api/v1/auth/me` 保护、刷新换新、过期自动刷新重试闭环 |
 | 异常分支 | 7 | 用户不存在 404、用户名重复 400、密码/用户名过短 422、缺字段 422、更新/删除不存在 404 |
 | 注册/限流 | 11 | bcrypt 哈希入库、弱密码校验 400、重复用户名 400、注册限流 429 |
 

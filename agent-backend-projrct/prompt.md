@@ -64,3 +64,44 @@
 - 如果时图片，则保存文件并 更新 用户数据库中的 avatar 字段。
 - 如果是文档 ， 则 只保存文件。
 - 存储逻辑 ： 文件和保存在按用户 ID 划分的目录中（新建uploads/user_id），并使用文件内容的 MD5 哈希值作为文件名以实现去重。
+- 文件上传依赖：python-multipart == 0.0.9
+
+# 请使用 SQLAlchemy 2.0 语法，根据一下信息创建三个 ORM 模型：
+ 1. 会话表（Session）
+    - id 自增主键
+    - user_id 外键关联用户表的ID，索引
+    - session_model ：整数，非空（注释：0=学习，1=面试，2=笔记）
+    - title：字符串(255)，非空，会话标题
+    - create_at :Unix 秒时间戳，非空，默认'UNIX_TIMESTAMP()'(会话创建时间)
+
+2. 消息表（chat_messages）
+    - id 自增主键
+    - user_id 外键关联用户表的ID
+    - session_id 外键关联会话表的ID
+    - select_model:整数，非空； 选择模式：0=默认，1=知识精讲，2=刷题，3=简历优化，4=模拟面试，5=面试复盘
+    - request_id:字符串(64)，非空，索引
+    - request_text:MEDIUMTEXT，非空,请求文本
+    - response_text:MEDIUMTEXT，非空，响应文本
+    - create_at :Unix 秒时间戳，非空
+    - 要求：在 session_id 与 created_at 上创建复合索引（按会话拉取并按时间排序）
+
+3. 面试记录表（interviews）
+    - id 自增主键
+    - session_id 外键关联会话表的ID，同一会话/面试场景
+    - message_id 外键关联消息表的ID，唯一；指向开启本次模拟面试的入口消息
+    - qa_object:JSON，非空；一问一答对象，字段约定见下方示例
+    - interview_duration:整数，非空,默认 0；累计面试时长（秒）
+    - status:整数，非空,默认 0;索引（0=进行中，1=已完成，2=异常终止）
+    - create_at :Unix 秒时间戳，非空，（面试开始时间）
+    - update_at :Unix 秒时间戳，非空，（更新面试时间）
+    - 要求：在 session_id 与 message_id 上创建复合索引
+
+    'qa_object' 示例（JSON内’created_at’为Unix秒，可与表字段对齐）：
+    ‘’'json
+    {
+        "id":"uuid",
+        "question":"...",
+        "answer":"...",
+        "created_at":1694502400,
+    }
+    ’‘’

@@ -92,7 +92,7 @@ def login_user(client):
         username: str = "authuser", password: str = "Goodpass1"
     ) -> tuple[dict, int]:
         register_resp = client.post(
-            "/auth/register",
+            "/api/v1/auth/register",
             # 注册接口为 multipart 表单：文本字段用 data 提交（avatar 可选，不传即可）
             data={"username": username, "password": password},
         )
@@ -100,7 +100,7 @@ def login_user(client):
         user_id = register_resp.json()["data"]["id"]
 
         login_resp = client.post(
-            "/auth/login",
+            "/api/v1/auth/login",
             json={"username": username, "password": password},
         )
         assert login_resp.status_code == 200, login_resp.text

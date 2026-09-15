@@ -252,7 +252,7 @@ class TestUserErrors:
 
 
 # ---------------------------------------------------------------------------
-# 四、注册接口（/auth/register）
+# 四、注册接口（/api/v1/auth/register）
 # ---------------------------------------------------------------------------
 
 
@@ -262,7 +262,7 @@ class TestAuthRegister:
     def test_register_success(self, client, db_session):
         """注册成功：返回 201，响应不含密码，库里存的是 bcrypt 哈希而非明文。"""
         resp = client.post(
-            "/auth/register",
+            "/api/v1/auth/register",
             data={"username": "newuser", "password": "Goodpass1"},
         )
         assert resp.status_code == 201
@@ -287,7 +287,7 @@ class TestAuthRegister:
     def test_register_blacklist_password(self, client, weak_password):
         """弱密码黑名单：命中常见弱密码返回 400，业务码 40002。"""
         resp = client.post(
-            "/auth/register",
+            "/api/v1/auth/register",
             data={"username": "tester", "password": weak_password},
         )
         assert resp.status_code == 400
@@ -299,7 +299,7 @@ class TestAuthRegister:
     def test_register_password_must_mix_letters_and_digits(self, client, weak_password):
         """组合复杂度：纯字母或纯数字密码返回 400，提示必须同时包含字母和数字。"""
         resp = client.post(
-            "/auth/register",
+            "/api/v1/auth/register",
             data={"username": "tester", "password": weak_password},
         )
         assert resp.status_code == 400
@@ -310,7 +310,7 @@ class TestAuthRegister:
     def test_register_password_contains_username(self, client):
         """关联性：密码包含用户名返回 400。"""
         resp = client.post(
-            "/auth/register",
+            "/api/v1/auth/register",
             data={"username": "alice", "password": "alice123"},
         )
         assert resp.status_code == 400
@@ -321,10 +321,10 @@ class TestAuthRegister:
     def test_register_duplicate_username(self, client):
         """注册重复用户名：复用 create_user 的唯一性校验，返回 400，业务码 40001。"""
         client.post(
-            "/auth/register", data={"username": "alice", "password": "Goodpass1"}
+            "/api/v1/auth/register", data={"username": "alice", "password": "Goodpass1"}
         )
         resp = client.post(
-            "/auth/register", data={"username": "alice", "password": "Anotherpass2"}
+            "/api/v1/auth/register", data={"username": "alice", "password": "Anotherpass2"}
         )
         assert resp.status_code == 400
         assert resp.json()["code"] == 40001
@@ -332,7 +332,7 @@ class TestAuthRegister:
     def test_register_validation_short_password(self, client):
         """参数校验：密码短于 6 位属于格式错误，返回 422。"""
         resp = client.post(
-            "/auth/register",
+            "/api/v1/auth/register",
             data={"username": "alice", "password": "a1"},
         )
         assert resp.status_code == 422
@@ -343,13 +343,13 @@ class TestAuthRegister:
         # 前 5 次放行（用户名均不同、密码均合规）
         for index in range(1, 6):
             resp = client.post(
-                "/auth/register",
+                "/api/v1/auth/register",
                 data={"username": f"user{index}", "password": f"Pass{index}word"},
             )
             assert resp.status_code == 201
         # 第 6 次触发固定窗口限流
         resp = client.post(
-            "/auth/register",
+            "/api/v1/auth/register",
             data={"username": "user6", "password": "Pass6word"},
         )
         assert resp.status_code == 429
@@ -364,7 +364,7 @@ class TestAuthRegister:
     def test_register_without_avatar_returns_null_avatar(self, client):
         """不传头像注册：正常建号，响应 avatar 为 null。"""
         resp = client.post(
-            "/auth/register",
+            "/api/v1/auth/register",
             data={"username": "noavatar", "password": "Goodpass1"},
         )
         assert resp.status_code == 201
@@ -378,7 +378,7 @@ class TestAuthRegister:
         monkeypatch.setattr(settings, "UPLOAD_DIR", str(tmp_path))
 
         resp = client.post(
-            "/auth/register",
+            "/api/v1/auth/register",
             data={"username": "avataruser", "password": "Goodpass1"},
             files={"avatar": ("my-avatar.png", _PNG_BYTES, "image/png")},
         )
@@ -403,14 +403,14 @@ class TestAuthRegister:
         assert db_user is not None
         assert db_user.avatar == expected_url
 
-        # 自动登录后 /auth/me 返回的头像与注册响应一致
+        # 自动登录后 /api/v1/auth/me 返回的头像与注册响应一致
         login_resp = client.post(
-            "/auth/login",
+            "/api/v1/auth/login",
             json={"username": "avataruser", "password": "Goodpass1"},
         )
         token = login_resp.json()["data"]["access_token"]
         me_resp = client.get(
-            "/auth/me", headers={"Authorization": f"Bearer {token}"}
+            "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
         )
         assert me_resp.status_code == 200
         assert me_resp.json()["data"]["avatar"] == expected_url
@@ -418,7 +418,7 @@ class TestAuthRegister:
     def test_register_with_non_image_avatar_rejected(self, client, db_session):
         """头像为文档类型：返回 400(40003)，且不创建用户（无孤儿账号）。"""
         resp = client.post(
-            "/auth/register",
+            "/api/v1/auth/register",
             data={"username": "badavatar", "password": "Goodpass1"},
             files={"avatar": ("note.txt", b"hello world", "text/plain")},
         )
@@ -430,7 +430,7 @@ class TestAuthRegister:
             select(User).where(User.username == "badavatar")
         ).first() is None
         retry_resp = client.post(
-            "/auth/register",
+            "/api/v1/auth/register",
             data={"username": "badavatar", "password": "Goodpass1"},
         )
         assert retry_resp.status_code == 201
@@ -438,7 +438,7 @@ class TestAuthRegister:
     def test_register_with_empty_avatar_rejected(self, client, db_session):
         """头像为空文件：返回 400(40005)，且不创建用户。"""
         resp = client.post(
-            "/auth/register",
+            "/api/v1/auth/register",
             data={"username": "emptyavatar", "password": "Goodpass1"},
             files={"avatar": ("empty.png", b"", "image/png")},
         )

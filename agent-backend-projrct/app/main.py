@@ -6,9 +6,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core import register_exception_handlers, settings, setup_logging
 from app.core.logger import get_logger
-from app.routers.auth import router as auth_router
 from app.routers.health import router as health_router
-from app.routers.v1 import files, users
+from app.routers.v1 import auth, files, users
 
 # 初始化日志（控制台 + 按天滚动文件 + 错误文件，级别随环境配置）
 setup_logging()
@@ -41,8 +40,9 @@ register_exception_handlers(app)
 # 健康检查路由：挂载在根路径，不添加前缀、不挂载鉴权，供监控系统直接调用
 app.include_router(health_router)
 
-# 认证路由：注册/登录/令牌刷新为匿名公开接口（白名单），/auth/me 内部挂载 JWT 鉴权
-app.include_router(auth_router)
+# 认证路由：统一前缀 /api/v1/auth；注册/登录/令牌刷新为匿名公开接口（白名单），
+# /api/v1/auth/me 内部挂载 JWT 鉴权；与业务路由共用同一版本前缀，便于后续 v2 整体并行迭代
+app.include_router(auth.router, prefix="/api/v1")
 
 # 业务路由：统一前缀 /api/v1；各业务路由组内部通过 dependencies 统一挂载 JWT
 # 登录鉴权，未登录请求统一返回 401，后续新增业务路由在组内自动纳入保护

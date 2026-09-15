@@ -3,9 +3,9 @@
 覆盖范围：
 1. 登录成功：返回 Access/Refresh 双令牌，令牌载荷（sub/username/type/exp）正确；
 2. 登录失败：密码错误、用户不存在统一 401(40103)，参数缺失 422；
-3. 受保护接口 /auth/me：无令牌/伪造令牌/刷新令牌混用/用户已删除均返回 401(40104)，
+3. 受保护接口 /api/v1/auth/me：无令牌/伪造令牌/刷新令牌混用/用户已删除均返回 401(40104)，
    有效访问令牌返回 200；
-4. 刷新接口 /auth/refresh：合法刷新令牌换新成功，类型不符/伪造/过期返回 401(40105)；
+4. 刷新接口 /api/v1/auth/refresh：合法刷新令牌换新成功，类型不符/伪造/过期返回 401(40105)；
 5. 静默续期闭环：访问令牌过期 → 401(40104) → 用刷新令牌换新 → 自动重试原请求成功，
    全程无需用户重新登录（模拟前端 axios 响应拦截器的处理逻辑）。
 
@@ -27,7 +27,7 @@ _PASSWORD = "Goodpass1"
 def _register(client, username: str = _USERNAME, password: str = _PASSWORD) -> str:
     """注册测试用户并返回用户ID。"""
     resp = client.post(
-        "/auth/register",
+        "/api/v1/auth/register",
         # 注册接口为 multipart 表单：文本字段用 data 提交（avatar 可选，不传即可）
         data={"username": username, "password": password},
     )
@@ -38,7 +38,7 @@ def _register(client, username: str = _USERNAME, password: str = _PASSWORD) -> s
 def _login(client, username: str = _USERNAME, password: str = _PASSWORD) -> dict:
     """登录并返回令牌对 data（access_token/refresh_token/token_type/expires_in）。"""
     resp = client.post(
-        "/auth/login",
+        "/api/v1/auth/login",
         json={"username": username, "password": password},
     )
     assert resp.status_code == 200, resp.text
@@ -104,7 +104,7 @@ class TestLogin:
         """密码错误：返回 401，业务码 40103，提示用户名或密码错误。"""
         _register(client)
         resp = client.post(
-            "/auth/login",
+            "/api/v1/auth/login",
             json={"username": _USERNAME, "password": "WrongPass9"},
         )
         assert resp.status_code == 401
@@ -116,7 +116,7 @@ class TestLogin:
     def test_login_unknown_username(self, client):
         """用户不存在：与密码错误返回完全一致的 401(40103)，避免用户名被枚举。"""
         resp = client.post(
-            "/auth/login",
+            "/api/v1/auth/login",
             json={"username": "ghost", "password": "AnyPass123"},
         )
         assert resp.status_code == 401
@@ -126,22 +126,22 @@ class TestLogin:
 
     def test_login_missing_fields(self, client):
         """参数校验：缺少密码字段返回 422。"""
-        resp = client.post("/auth/login", json={"username": _USERNAME})
+        resp = client.post("/api/v1/auth/login", json={"username": _USERNAME})
         assert resp.status_code == 422
         assert resp.json()["code"] == 42200
 
 
 # ---------------------------------------------------------------------------
-# 二、JWT 保护接口 /auth/me
+# 二、JWT 保护接口 /api/v1/auth/me
 # ---------------------------------------------------------------------------
 
 
 class TestProtectedMe:
-    """受 JWT 保护的 /auth/me 接口冒烟测试。"""
+    """受 JWT 保护的 /api/v1/auth/me 接口冒烟测试。"""
 
     def test_me_without_token_unauthorized(self, client):
         """无令牌访问：返回 401，业务码 40104，并携带 WWW-Authenticate 头。"""
-        resp = client.get("/auth/me")
+        resp = client.get("/api/v1/auth/me")
         assert resp.status_code == 401
         body = resp.json()
         assert body["code"] == 40104
@@ -153,7 +153,7 @@ class TestProtectedMe:
         _register(client)
         tokens = _login(client)
 
-        resp = client.get("/auth/me", headers=_auth_header(tokens["access_token"]))
+        resp = client.get("/api/v1/auth/me", headers=_auth_header(tokens["access_token"]))
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["username"] == _USERNAME
@@ -162,13 +162,13 @@ class TestProtectedMe:
 
     def test_me_with_forged_token_rejected(self, client):
         """伪造令牌：返回 401(40104)。"""
-        resp = client.get("/auth/me", headers=_auth_header("not-a-valid-jwt"))
+        resp = client.get("/api/v1/auth/me", headers=_auth_header("not-a-valid-jwt"))
         assert resp.status_code == 401
         assert resp.json()["code"] == 40104
 
     def test_me_with_non_bearer_scheme_rejected(self, client):
         """非 Bearer 认证方案（如 Basic）：返回 401(40104)，不暴露框架级 403。"""
-        resp = client.get("/auth/me", headers={"Authorization": "Basic dXNlcjpwYXNz"})
+        resp = client.get("/api/v1/auth/me", headers={"Authorization": "Basic dXNlcjpwYXNz"})
         assert resp.status_code == 401
         assert resp.json()["code"] == 40104
 
@@ -177,7 +177,7 @@ class TestProtectedMe:
         _register(client)
         tokens = _login(client)
 
-        resp = client.get("/auth/me", headers=_auth_header(tokens["refresh_token"]))
+        resp = client.get("/api/v1/auth/me", headers=_auth_header(tokens["refresh_token"]))
         assert resp.status_code == 401
         assert resp.json()["code"] == 40104
 
@@ -192,13 +192,13 @@ class TestProtectedMe:
         )
         assert del_resp.status_code == 200
 
-        resp = client.get("/auth/me", headers=_auth_header(tokens["access_token"]))
+        resp = client.get("/api/v1/auth/me", headers=_auth_header(tokens["access_token"]))
         assert resp.status_code == 401
         assert resp.json()["code"] == 40104
 
 
 # ---------------------------------------------------------------------------
-# 三、刷新接口 /auth/refresh
+# 三、刷新接口 /api/v1/auth/refresh
 # ---------------------------------------------------------------------------
 
 
@@ -206,12 +206,12 @@ class TestRefreshToken:
     """刷新令牌接口冒烟测试。"""
 
     def test_refresh_success(self, client):
-        """合法刷新令牌：返回 200 与新的访问令牌，新令牌可正常访问 /auth/me。"""
+        """合法刷新令牌：返回 200 与新的访问令牌，新令牌可正常访问 /api/v1/auth/me。"""
         _register(client)
         tokens = _login(client)
 
         resp = client.post(
-            "/auth/refresh",
+            "/api/v1/auth/refresh",
             json={"refresh_token": tokens["refresh_token"]},
         )
         assert resp.status_code == 200
@@ -224,7 +224,7 @@ class TestRefreshToken:
         assert data["access_token"] != tokens["access_token"]
         # 新令牌载荷正确且可直接访问受保护接口
         assert _decode(data["access_token"])["type"] == TokenType.ACCESS.value
-        me_resp = client.get("/auth/me", headers=_auth_header(data["access_token"]))
+        me_resp = client.get("/api/v1/auth/me", headers=_auth_header(data["access_token"]))
         assert me_resp.status_code == 200
 
     def test_refresh_with_access_token_rejected(self, client):
@@ -233,7 +233,7 @@ class TestRefreshToken:
         tokens = _login(client)
 
         resp = client.post(
-            "/auth/refresh",
+            "/api/v1/auth/refresh",
             json={"refresh_token": tokens["access_token"]},
         )
         assert resp.status_code == 401
@@ -243,7 +243,7 @@ class TestRefreshToken:
     def test_refresh_with_forged_token_rejected(self, client):
         """伪造刷新令牌：返回 401(40105)。"""
         resp = client.post(
-            "/auth/refresh",
+            "/api/v1/auth/refresh",
             json={"refresh_token": "not-a-valid-jwt"},
         )
         assert resp.status_code == 401
@@ -260,7 +260,7 @@ class TestRefreshToken:
         )
 
         resp = client.post(
-            "/auth/refresh",
+            "/api/v1/auth/refresh",
             json={"refresh_token": expired_refresh},
         )
         assert resp.status_code == 401
@@ -268,7 +268,7 @@ class TestRefreshToken:
 
     def test_refresh_missing_field(self, client):
         """参数校验：请求体缺少 refresh_token 返回 422。"""
-        resp = client.post("/auth/refresh", json={})
+        resp = client.post("/api/v1/auth/refresh", json={})
         assert resp.status_code == 422
         assert resp.json()["code"] == 42200
 
@@ -294,13 +294,13 @@ class TestAutoRefreshAndRetry:
         )
 
         # 第一步：携带过期访问令牌请求受保护接口 → 401(40104)
-        first_resp = client.get("/auth/me", headers=_auth_header(expired_access))
+        first_resp = client.get("/api/v1/auth/me", headers=_auth_header(expired_access))
         assert first_resp.status_code == 401
         assert first_resp.json()["code"] == 40104
 
-        # 第二步：拦截器自动使用刷新令牌调用 /auth/refresh，换取新访问令牌（用户无操作）
+        # 第二步：拦截器自动使用刷新令牌调用 /api/v1/auth/refresh，换取新访问令牌（用户无操作）
         refresh_resp = client.post(
-            "/auth/refresh",
+            "/api/v1/auth/refresh",
             json={"refresh_token": tokens["refresh_token"]},
         )
         assert refresh_resp.status_code == 200
@@ -308,7 +308,7 @@ class TestAutoRefreshAndRetry:
         assert new_access != expired_access
 
         # 第三步：用新访问令牌自动重试原请求 → 200，业务数据正确
-        retry_resp = client.get("/auth/me", headers=_auth_header(new_access))
+        retry_resp = client.get("/api/v1/auth/me", headers=_auth_header(new_access))
         assert retry_resp.status_code == 200
         assert retry_resp.json()["data"]["username"] == _USERNAME
 
@@ -329,10 +329,10 @@ class TestAutoRefreshAndRetry:
         )
 
         # 原请求 401(40104)
-        assert client.get("/auth/me", headers=_auth_header(expired_access)).status_code == 401
+        assert client.get("/api/v1/auth/me", headers=_auth_header(expired_access)).status_code == 401
         # 尝试静默刷新失败 401(40105)：闭环中断，前端引导重新登录
         refresh_resp = client.post(
-            "/auth/refresh",
+            "/api/v1/auth/refresh",
             json={"refresh_token": expired_refresh},
         )
         assert refresh_resp.status_code == 401

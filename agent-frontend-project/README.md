@@ -166,7 +166,7 @@ agent-frontend-project/
 
 - `MainLayout` 由 `AppHeader`（Logo + Tab 导航 + 用户菜单）、`AppSidebar`（新建按钮 + 列表）、`router-view` 三部分组成。
 - 侧边栏根据当前路由 `meta.sidebar` 切换数据源：`chat` 渲染聊天会话，`note` 渲染笔记列表；两套列表复用 `AppSidebar` + `ChatHistoryList`，仅通过 props 文案与事件区分业务。
-- 布局挂载后若已登录会拉取 `/auth/me` 恢复当前用户信息，供头部展示用户名。
+- 布局挂载后若已登录会拉取 `/api/v1/auth/me` 恢复当前用户信息，供头部展示用户名。
 
 ### 5. 登录 / 注册与用户菜单
 
@@ -204,12 +204,12 @@ agent-frontend-project/
 - 所有请求统一走 `src/utils/request.ts` 的 axios 实例（`baseURL` 取 `VITE_API_BASE_URL`，开发环境置空），页面禁止裸写 axios；接口按业务模块放在 `src/api/`，入参出参在 `src/types/auth.ts` 等文件中定义完整 interface。
 - 后端统一响应体为 `{ code, message, data }`，`code = 0` 为成功；成功拦截器直接返回响应体，业务层取 `res.data`。
 - 请求拦截器自动注入 `Authorization: Bearer <access_token>`；响应错误按业务码分流：
-  - `40104` 访问令牌过期：调用 `/auth/refresh`「单飞」静默换新，并发 401 共享同一次刷新，成功后重放原请求（每请求最多一次）；
+  - `40104` 访问令牌过期：调用 `/api/v1/auth/refresh`「单飞」静默换新，并发 401 共享同一次刷新，成功后重放原请求（每请求最多一次）；
   - `40105` 刷新令牌失效或刷新失败：提示一次「登录状态已过期」，清理令牌并跳转登录页；
   - 其他错误（如 `40103` 凭证错误、`42200` 参数错误、`42901` 限流）：统一弹出后端中文 `message`，页面层不再重复提示；无响应时提示网络异常。
 - 令牌由 `src/utils/storage.ts` 统一读写 localStorage（键名 `agent_access_token` / `agent_refresh_token`），业务代码不直接操作。
 - 登录态失效后的清理与跳转通过 `setTokenExpiredHandler` 由 `main.ts` 注入，避免 `request` 与 router / store 循环依赖。
-- 后端认证接口为 `/auth/*`（注册、登录、刷新、`/auth/me`），业务接口前缀为 `/api/v1`。
+- 后端认证接口统一为 `/api/v1/auth/*`（注册、登录、刷新、`/api/v1/auth/me`），与业务接口共用 `/api/v1` 版本前缀。
 
 ### 组件复用与配置驱动
 
@@ -219,7 +219,7 @@ agent-frontend-project/
 
 ### 数据与接口现状
 
-- **用户认证已对接真实后端**：注册、登录、令牌刷新、`/auth/me` 均通过 `src/api/auth.ts` + `src/utils/request.ts` 调用，双令牌持久化在 localStorage。
+- **用户认证已对接真实后端**：注册、登录、令牌刷新、`/api/v1/auth/me` 均通过 `src/api/auth.ts` + `src/utils/request.ts` 调用，双令牌持久化在 localStorage。
 - **业务数据仍为 Mock**：会话、笔记、消息等数据仍是 `src/config/constant.ts` 中的 Mock 数据，仅保存在 Pinia 内存中，刷新页面后重置；AI 回复由 `stores/chat.ts` 中的 `window.setTimeout` 模拟（代码内已标注「后续替换为真实接口调用」）。
 - 业务接口接入步骤（基础设施已就绪，无需再安装 axios）：
   1. 按业务模块在 `src/api/` 新增接口文件，入参 / 出参补充完整 interface，统一经 `src/utils/request.ts` 发起；
@@ -228,7 +228,7 @@ agent-frontend-project/
 ### Vite 工程配置
 
 - 路径别名：`@` 指向 `src`（`vite.config.ts` 与 `tsconfig.app.json` 两处保持一致）。
-- 开发服务器：监听 `0.0.0.0:5173`，自动打开浏览器；代理目标取 `VITE_PROXY_TARGET`（默认 `http://localhost:8000`）。代理包含两条规则且均**原样透传、不做 rewrite**：`/auth`（认证接口）与 `VITE_API_PREFIX`（默认 `/api`，对应后端 `/api/v1` 业务接口）。因浏览器始终同源访问 dev server，后端无需开启 CORS。
+- 开发服务器：监听 `0.0.0.0:5173`，自动打开浏览器；代理目标取 `VITE_PROXY_TARGET`（默认 `http://localhost:8000`）。代理包含两条规则且均**原样透传、不做 rewrite**：`VITE_API_PREFIX`（默认 `/api`，对应后端 `/api/v1` 业务与认证接口，含 `/api/v1/auth/*`）与 `/uploads`（上传静态资源）。因浏览器始终同源访问 dev server，后端无需开启 CORS。
 - 构建：产物输出 `dist/`；非生产环境生成 sourcemap；`node_modules` 中的 `element-plus`、`@wangeditor`、`vue` 拆分为独立 chunk，便于缓存复用；单包告警阈值 1500KB。
 
 ### 样式规范

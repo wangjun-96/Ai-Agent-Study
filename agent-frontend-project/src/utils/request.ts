@@ -111,7 +111,7 @@ function refreshAccessToken(): Promise<string | null> {
   // 已有刷新进行中时直接复用，保证并发请求只触发一次刷新
   if (!refreshingPromise) {
     refreshingPromise = service
-      .post('/auth/refresh', { refresh_token: refreshToken }, { _isRefreshRequest: true })
+      .post('/api/v1/auth/refresh', { refresh_token: refreshToken }, { _isRefreshRequest: true })
       .then((res) => {
         // 成功拦截器已返回统一响应体，res.data 即 AccessTokenResult
         const newToken = (res.data as { access_token?: string } | undefined)

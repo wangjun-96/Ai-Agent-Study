@@ -22,10 +22,10 @@ export const useUserStore = defineStore('user', () => {
   /** 刷新令牌 */
   const refreshToken = ref<string>(getRefreshToken())
 
-  /** 当前登录用户信息（登录后通过 /auth/me 拉取） */
+  /** 当前登录用户信息（登录后通过 /api/v1/auth/me 拉取） */
   const userInfo = ref<UserInfo | null>(null)
 
-  /** 当前头像访问地址（后端 /uploads 路径，由 /auth/me 或上传接口返回） */
+  /** 当前头像访问地址（后端 /uploads 路径，由 /api/v1/auth/me 或上传接口返回） */
   const avatarUrl = ref<string>('')
 
   // ==================== 计算属性 ====================
@@ -63,7 +63,7 @@ export const useUserStore = defineStore('user', () => {
 
   /**
    * 注册：multipart 单请求完成建号与可选头像保存（头像随注册表单提交，无需先登录）。
-   * 注册成功后由页面直接调用 login 自动登录，再经 /auth/me 拉取含头像的用户信息。
+   * 注册成功后由页面直接调用 login 自动登录，再经 /api/v1/auth/me 拉取含头像的用户信息。
    */
   async function register(params: RegisterParams, avatar?: File | null): Promise<UserInfo> {
     const res = await registerApi(params, avatar)

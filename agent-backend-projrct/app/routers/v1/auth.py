@@ -3,7 +3,7 @@
 - 注册 / 登录 / 刷新为匿名公开接口（鉴权白名单），供未登录用户调用；
 - 注册接口为 multipart/form-data：username/password 文本字段 + 可选 avatar 头像文件，
   建号与头像保存一个请求完成，无需先登录再二次上传；
-- /auth/me 挂载 get_current_user 依赖，是 JWT 保护接口的标准用法；
+- /api/v1/auth/me 挂载 get_current_user 依赖，是 JWT 保护接口的标准用法；
 - 注册接口统一挂载固定窗口限流依赖（IP 维度，默认 5 次/分钟），防止被刷；
 - 入口仅做参数接收、路由分发，认证与令牌逻辑均在业务层 AuthService 完成。
 """
@@ -114,7 +114,7 @@ async def register(
     description=(
         "用户名 + 密码登录，校验通过后签发 JWT 双令牌，无需鉴权。\n\n"
         "- access_token：访问令牌，放入请求头 `Authorization: Bearer <token>` 访问受保护接口；\n"
-        "- refresh_token：刷新令牌，access_token 过期后调用 /auth/refresh 静默换取新令牌；\n"
+        "- refresh_token：刷新令牌，access_token 过期后调用 /api/v1/auth/refresh 静默换取新令牌；\n"
         "- 用户名不存在与密码错误统一返回 401(40103)，避免用户名被枚举。"
     ),
     response_model=ApiResponse[TokenResponse],
