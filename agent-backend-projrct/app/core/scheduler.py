@@ -52,3 +52,10 @@ def run_cleanup_once() -> None:
         logger.exception("过期资源清理任务执行异常")
     finally:
         db.close()
+
+
+if __name__ == "__main__":
+    """手动执行一次过期资源清理：python -m app.core.scheduler"""
+    logger.info("手动触发过期资源清理任务")
+    run_cleanup_once()
+    logger.info("手动清理完成")

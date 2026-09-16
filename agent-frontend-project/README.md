@@ -97,7 +97,7 @@ agent-frontend-project/
 │   └── frontend-coding-standards.md  # 前端编码规范（提交前必读）
 ├── src/
 │   ├── api/                        # 接口请求层（按业务模块拆分）
-│   │   └── auth.ts                 # 认证接口：注册 / 登录 / 刷新令牌 / 当前用户
+│   │   └── auth.ts                 # 认证与文件上传接口：注册 / 登录 / 刷新令牌 / 当前用户 / 通用文件上传
 │   ├── components/                # 通用 / 业务组件
 │   │   ├── chat/                  # 聊天相关：聊天室、输入区、消息列表、气泡、头像
 │   │   ├── common/                # 通用基础组件（TabSwitch）
@@ -221,6 +221,10 @@ agent-frontend-project/
 
 - **用户认证已对接真实后端**：注册、登录、令牌刷新、`/api/v1/auth/me` 均通过 `src/api/auth.ts` + `src/utils/request.ts` 调用，双令牌持久化在 localStorage。
 - **业务数据仍为 Mock**：会话、笔记、消息等数据仍是 `src/config/constant.ts` 中的 Mock 数据，仅保存在 Pinia 内存中，刷新页面后重置；AI 回复由 `stores/chat.ts` 中的 `window.setTimeout` 模拟（代码内已标注「后续替换为真实接口调用」）。
+- **MinIO 对象存储改造（后端已就绪，前端待接入）**：后端已接入 MinIO 对象存储，注册接口 `POST /api/v1/auth/register` 的头像保存路径切换到 MinIO，返回的 `avatar` 字段为存储路径（格式形如 `minio://ai-resource/user_{id}/images/{hash}.png`），并非浏览器可直接访问的 URL；新增以下后端接口：
+  - `POST /api/v1/files/upload`：通用文件上传（multipart，JWT 鉴权，支持 `storage_scene` 与 `upload_purpose` 参数），前端 `src/api/auth.ts` 的 `uploadFile` 已对接；
+  - `GET /api/v1/avatar/{user_id}`：头像公开代理接口（无鉴权），后端 307 重定向到 MinIO 预签名 URL，供 `<img src="/api/v1/avatar/{user_id}">` 直接渲染。
+- **头像显示方案**：由于 `avatar` 字段为 MinIO 存储路径而非浏览器可访问 URL，头像展示需改走代理接口 `/api/v1/avatar/{user_id}` 作为 `img src`。当前 `src/stores/user.ts` 的 `avatarUrl` 仍直接取自 `/api/v1/auth/me` 返回的 `avatar` 字段、`src/components/layout/AppHeader.vue` 直接以 `avatarUrl` 作为 `img src`，**尚未切换到代理接口**；后端代理接口已就绪，前端后续接入时仅需将 `img src` 替换为 `/api/v1/avatar/${user_id}` 即可（开发环境经 Vite `/api` 代理透传，无需额外配置）。
 - 业务接口接入步骤（基础设施已就绪，无需再安装 axios）：
   1. 按业务模块在 `src/api/` 新增接口文件，入参 / 出参补充完整 interface，统一经 `src/utils/request.ts` 发起；
   2. 将 `sendMessage` 中的模拟逻辑替换为真实接口调用，并移除 `constant.ts` 中对应的 Mock 数据。

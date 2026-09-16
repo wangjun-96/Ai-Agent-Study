@@ -46,7 +46,7 @@ class TestAvatarProxy:
 
         # URL 中的 object_key 与注册时写入的一致
         file_hash = hashlib.md5(_PNG_BYTES).hexdigest()
-        object_key = f"{user_id}/{file_hash}.png"
+        object_key = f"user_{user_id}/images/{file_hash}.png"
         assert object_key in location
 
     def test_user_without_avatar_returns_40402(self, client, fake_minio):

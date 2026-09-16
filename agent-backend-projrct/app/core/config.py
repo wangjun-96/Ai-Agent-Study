@@ -81,8 +81,8 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     # 上传文件访问 URL 前缀，与 main.py 中 StaticFiles 挂载路径保持一致
     UPLOAD_URL_PREFIX: str = "/uploads"
-    # 单个上传文件大小上限（字节），默认 10MB，超限返回业务错误 40004
-    UPLOAD_MAX_SIZE: int = 10 * 1024 * 1024
+    # 单个上传文件大小上限（字节），默认 100MB，支持音频/视频等大文件上传
+    UPLOAD_MAX_SIZE: int = 100 * 1024 * 1024
 
     # MinIO 对象存储连接配置（敏感信息从环境变量注入，禁止硬编码到业务层）
     # 服务地址，形如 host:port（不含 scheme）

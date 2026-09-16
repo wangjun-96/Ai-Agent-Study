@@ -1,6 +1,6 @@
 # 用户管理 API
 
-基于 **FastAPI + SQLAlchemy 2.0 + MySQL** 的用户增删改查示例项目，采用四层架构组织代码，密码使用 passlib[bcrypt] 哈希存储，环境变量按开发/生产分层管理，日志统一使用 Loguru 记录。
+基于 **FastAPI + SQLAlchemy 2.0 + MySQL + MinIO** 的用户增删改查与文件上传示例项目，采用四层架构组织代码，密码使用 passlib[bcrypt] 哈希存储，文件资源通过 **MinIO 对象存储** 与 MySQL 元数据解耦管理，环境变量按开发/生产分层管理，日志统一使用 Loguru 记录。
 
 ## 一、技术栈
 
@@ -16,6 +16,9 @@
 | python-dotenv 1.0.1 | 按运行环境分层加载 .env 文件 |
 | Loguru 0.7.2 | 日志体系：控制台彩色输出 + 文件滚动留痕 |
 | uvicorn | ASGI 服务器 |
+| python-multipart | multipart/form-data 表单与文件上传解析（FastAPI UploadFile 依赖） |
+| minio | MinIO 对象存储 SDK，封装原文件上传/删除/预签名下载 |
+| httpx | HTTP 客户端，供接口冒烟测试使用（经 starlette TestClient 同步调用 ASGI） |
 
 ## 二、项目结构（四层架构）
 
@@ -33,53 +36,81 @@ agent-backend-projrct/
 ├── alembic/                        # 数据库迁移脚本目录
 │   ├── env.py                      # 迁移环境（连接串从配置层注入）
 │   └── versions/                   # 各版本迁移脚本
+│       ├── 2026_09_11_1656-37fbff02c763_init_users_table.py        # users 表初始化
+│       ├── 2026_09_13_1030-a1b2c3d4e5f6_add_user_avatar.py         # users.avatar 字段
+│       ├── 2026_09_15_1000-c5d6e7f8a9b0_add_session_tables.py      # session/chat_messages/interviews 表
+│       └── 2026_09_15_1100-d7e8f9a0b1c2_add_resources_table.py     # resources 表 + chat_messages.file_extracted_text
 ├── logs/                           # Loguru 日志产物（不提交）
 │   ├── app.log                     # 全量日志（按天滚动、自动压缩）
 │   └── error.log                   # ERROR 及以上级别日志
+├── uploads/                        # 旧本地存储目录（仅 file_service.py 教学保留，运行逻辑已切换 MinIO）
 ├── tests/                          # 冒烟测试目录
-│   ├── conftest.py                 # 测试夹具：SQLite 内存 DB + 依赖覆写 + TestClient
-│   └── test_smoke.py               # 冒烟测试用例（健康检查、CRUD、异常分支）
+│   ├── conftest.py                 # 测试夹具：SQLite 内存 DB + 依赖覆写 + TestClient + FakeMinio
+│   ├── test_smoke.py               # 冒烟测试：健康检查、CRUD、异常分支、注册/限流
+│   ├── test_auth_login.py          # 登录/JWT 鉴权链路测试
+│   ├── test_rate_limit.py          # 固定窗口限流器单元测试
+│   ├── test_upload_minio.py        # MinIO 上传链路冒烟测试（9 用例 + 注册头像 2 用例）
+│   └── test_avatar_proxy.py        # 头像公开代理接口测试（4 用例）
 └── app/
-    ├── main.py                     # FastAPI 入口：日志初始化、异常处理器、路由
+    ├── main.py                     # FastAPI 入口：日志初始化、异常处理器、路由聚合、lifespan 定时清理
     ├── security.py                 # 安全工具：密码 bcrypt 哈希 + 弱密码强度策略
     ├── core/                       # 横切基础设施
-    │   ├── config.py               # 统一配置层（环境分层 + pydantic-settings）
+    │   ├── config.py               # 统一配置层（环境分层 + pydantic-settings + MinIO 配置）
     │   ├── exceptions.py           # 自定义业务/系统异常
     │   ├── responses.py            # 统一响应模型（code/message/data/detail）
     │   ├── jwt.py                  # JWT 签发/校验（Access/Refresh 双令牌）
     │   ├── rate_limit.py           # 固定窗口限流（注册接口 IP 维度）
     │   ├── logger.py               # Loguru 日志配置（开发双写 / 生产仅文件）
+    │   ├── scheduler.py            # 每日 03:00 过期资源清理调度（asyncio 轻量实现，可手动执行）
     │   └── handlers.py             # 全局异常处理器
     ├── enums/
     │   ├── response_code.py        # 业务状态码枚举
-    │   └── token_type.py           # JWT 令牌类型枚举（access/refresh）
+    │   ├── token_type.py           # JWT 令牌类型枚举（access/refresh）
+    │   ├── resource_type.py        # 资源类型枚举：0=文件，1=图片，2=音频
+    │   ├── storage_scene.py        # 存储场景枚举：0=长过期(1月)，1=短过期(2小时)，2=只提取内容
+    │   ├── upload_purpose.py       # 上传用途枚举：0=普通资源，1=用户头像
+    │   ├── file_type.py            # 文件类型枚举：image/document（旧本地逻辑用）
+    │   ├── interview_status.py     # 面试状态枚举：进行中/已完成/异常终止
+    │   ├── select_model.py         # 消息选择模式枚举：默认/知识精讲/刷题/简历优化/模拟面试/面试复盘
+    │   └── session_model.py        # 会话模式枚举：学习/面试/笔记
     ├── schemas/                    # 校验层：Pydantic v2 请求/响应模型
     │   ├── user.py                 # 用户模型
-    │   └── auth.py                 # 注册/登录/刷新/令牌模型
+    │   ├── auth.py                 # 注册/登录/刷新/令牌模型
+    │   └── file.py                 # 文件上传响应模型：FileUploadResult / ResourceUploadResult
     ├── db/                         # 数据库层
     │   ├── base.py                 # SQLAlchemy Declarative Base
     │   ├── database.py             # Engine / Session 工厂 / get_db 依赖
-    │   └── models.py               # ORM 模型：User 表定义
+    │   └── models.py               # ORM 模型：User / Resource / Session / ChatMessage / Interview
     ├── dao/
-    │   └── user_dao.py             # 数据访问层：所有数据库操作封装在此
+    │   ├── user_dao.py             # 用户表数据访问层
+    │   └── resource_dao.py         # 资源元数据表 DAO：insert/get_by_hash/list_expired/delete
+    ├── integrations/               # 第三方集成层：封装 SDK，业务层只调用工具方法
+    │   └── minio_client.py         # MinioStorage 工具类：上传/删除/预签名URL/桶管理/path编解码
     ├── services/                   # 业务层：业务逻辑 + 密码哈希
-    │   ├── user_service.py
-    │   └── auth_service.py         # 注册/登录认证/令牌刷新
+    │   ├── user_service.py         # 用户业务（含头像回写 update_avatar）
+    │   ├── auth_service.py         # 注册/登录认证/令牌刷新（注册头像走 MinIO 两阶段）
+    │   ├── upload_service_minio.py # MinIO 上传业务服务（当前运行逻辑）：去重/场景分流/头像回写
+    │   ├── resource_cleanup_service.py # 过期资源清理：先删 MinIO 对象再删元数据
+    │   └── file_service.py         # 旧本地上传逻辑（教学保留，不参与运行）
     └── routers/                    # 路由层
         ├── health.py               # 健康检查路由（/health，不挂鉴权）
-        ├── auth.py                 # 认证路由（注册/登录/刷新/当前用户）
         └── v1/
-            ├── deps.py             # 公共依赖项：JWT 鉴权 get_current_user 等
-            └── users.py            # 用户增删改查路由（统一 JWT 登录鉴权）
+            ├── api.py              # v1 路由统一聚合出口（main.py 只挂载 health_router + v1_router）
+            ├── deps.py             # 公共依赖项：JWT 鉴权 get_current_user / Service 工厂等
+            ├── auth.py             # 认证路由（注册/登录/刷新/当前用户）
+            ├── users.py            # 用户增删改查路由（统一 JWT 登录鉴权）
+            ├── files.py            # 文件上传路由（/api/v1/files/upload，统一 JWT 鉴权）
+            └── avatar.py           # 头像公开代理路由（/api/v1/avatar/{user_id}，307 重定向，无鉴权）
 ```
 
 ### 分层职责
 
-- **路由层（routers）**：仅做参数接收、路由分发、异常捕获，不堆砌核心业务逻辑。
+- **路由层（routers）**：仅做参数接收、路由分发、异常捕获，不堆砌核心业务逻辑。v1 路由在 `routers/v1/api.py` 统一聚合，`main.py` 只挂载 `health_router` + `v1_router`，新增业务模块只需在 `api.py` 追加 `include_router`。
 - **校验层（schemas）**：Pydantic v2 定义请求/响应模型，路径/查询/请求体全部结构化。
-- **业务层（services）**：处理业务逻辑，密码哈希在此层完成，只调用 DAO，不直接操作 Session。
-- **数据访问层（dao）**：数据库操作全部封装在此，禁止裸写原生 SQL 拼接。
-- **横切基础设施（core / enums / db）**：统一配置、统一响应、全局异常处理、日志、ORM 建模、业务状态码枚举，供各层复用。
+- **业务层（services）**：处理业务逻辑，密码哈希在此层完成，只调用 DAO，不直接操作 Session；MinIO 上传/去重/场景分流/头像回写/过期清理均在此层。
+- **数据访问层（dao）**：数据库操作全部封装在此，禁止裸写原生 SQL 拼接；写操作统一加事务，失败自动回滚。
+- **第三方集成层（integrations）**：封装 MinIO 等 SDK，业务层只调用工具方法，不裸写第三方代码。
+- **横切基础设施（core / enums / db）**：统一配置、统一响应、全局异常处理、日志、ORM 建模、定时调度、业务状态码与资源/会话/面试等枚举，供各层复用。
 
 ## 三、安装与运行
 
@@ -176,6 +207,17 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 | `LOG_LEVEL` | 日志级别 | `DEBUG` | `INFO` |
 | `LOG_RETENTION` | 日志文件保留时长（Loguru retention 语义） | `15 days` | `30 days` |
 | `SQL_ECHO` | 是否回显 SQL 语句 | `false` | `false` |
+| `MINIO_ENDPOINT` | MinIO 服务地址（host:port，不含 scheme） | `localhost:9000` | 替换为生产 MinIO 地址 |
+| `MINIO_ACCESS_KEY` | MinIO 访问密钥 | `minioadmin` | 替换为生产最小权限账号 |
+| `MINIO_SECRET_KEY` | MinIO 秘密密钥 | `minioadmin` | 必须替换为高强度密钥 |
+| `MINIO_BUCKET` | 资源默认桶名 | `ai-resource` | 按业务命名 |
+| `MINIO_SECURE` | MinIO 是否启用 HTTPS | `false` | `true` |
+| `MINIO_PRESIGN_EXPIRY_SECONDS` | 预签名下载 URL 有效期（秒），供前端临时访问私有桶对象 | `7200`（2 小时） | 按安全策略设定 |
+| `RESOURCE_LONG_EXPIRE_DAYS` | 长过期场景（storage_scene=0）保留天数 | `30`（1 个月） | 按业务设定 |
+| `RESOURCE_SHORT_EXPIRE_HOURS` | 短过期场景（storage_scene=1）保留小时数 | `2` | 按业务设定 |
+| `UPLOAD_MAX_SIZE` | 单个上传文件大小上限（字节） | `104857600`（100MB） | 按业务设定 |
+| `UPLOAD_DIR` | 旧本地存储根目录（仅 file_service.py 教学保留用） | `uploads` | `uploads` |
+| `UPLOAD_URL_PREFIX` | 旧本地上传访问 URL 前缀（与 StaticFiles 挂载一致） | `/uploads` | `/uploads` |
 
 ### 使用约定
 
@@ -223,7 +265,7 @@ logger.error("系统异常：{}", exc)
 | GET | `/docs` | Swagger UI 接口文档 | 否 | 200 |
 | GET | `/redoc` | ReDoc 接口文档 | 否 | 200 |
 | GET | `/openapi.json` | OpenAPI 元数据 | 否 | 200 |
-| POST | `/api/v1/auth/register` | 用户注册（弱密码校验 + bcrypt 哈希 + IP 限流 5/min） | 否 | 201 |
+| POST | `/api/v1/auth/register` | 用户注册（弱密码校验 + bcrypt 哈希 + IP 限流 5/min，可选头像走 MinIO 两阶段上传） | 否 | 201 |
 | POST | `/api/v1/auth/login` | 登录，返回 Access/Refresh 双令牌 | 否 | 200 |
 | POST | `/api/v1/auth/refresh` | 刷新令牌过期后，用 Refresh Token 换新 Access Token | 否（凭刷新令牌） | 200 |
 | GET | `/api/v1/auth/me` | 获取当前登录用户信息 | 是（JWT） | 200 |
@@ -232,9 +274,11 @@ logger.error("系统异常：{}", exc)
 | GET | `/api/v1/users/{user_id}` | 查询单个用户 | 是（JWT） | 200 |
 | PUT | `/api/v1/users/{user_id}` | 更新用户 | 是（JWT） | 200 |
 | DELETE | `/api/v1/users/{user_id}` | 删除用户 | 是（JWT） | 200 |
+| POST | `/api/v1/files/upload` | 通用文件上传（multipart，MinIO 存原文件 + MySQL 存元数据，storage_scene + upload_purpose 入参） | 是（JWT） | 200 |
+| GET | `/api/v1/avatar/{user_id}` | 头像公开代理（307 重定向到 MinIO 预签名 URL，供 `<img>` 标签直接访问） | 否 | 307 |
 
-> **鉴权白名单**：`/health`、文档接口与 `/api/v1/auth/register`、`/api/v1/auth/login`、`/api/v1/auth/refresh` 不挂登录鉴权，供监控探活与匿名认证使用；
-> 其余业务接口（含全部 `/api/v1/*`）统一要求登录，在请求头携带 `Authorization: Bearer <access_token>`，
+> **鉴权白名单**：`/health`、文档接口、`/api/v1/auth/register`、`/api/v1/auth/login`、`/api/v1/auth/refresh`、`/api/v1/avatar/{user_id}` 不挂登录鉴权，供监控探活、匿名认证与 `<img>` 标签直接访问头像使用；
+> 其余业务接口（含 `/api/v1/users/*`、`/api/v1/files/upload`）统一要求登录，在请求头携带 `Authorization: Bearer <access_token>`，
 > 缺失/过期/伪造令牌统一返回 401(40104)。
 
 ### 鉴权流程（JWT 双令牌 + 无感刷新）
@@ -296,7 +340,12 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/auth/refresh" `
 | 用户名或密码错误 | 401 | 40103 | 用户名或密码错误 |
 | 缺失/过期/伪造访问令牌 | 401 | 40104 | 访问令牌无效或已过期 |
 | 刷新令牌无效或已过期 | 401 | 40105 | 刷新令牌无效或已过期 |
+| 上传文件类型不支持 | 400 | 40003 | 文件类型不支持 |
+| 上传文件超出大小限制 | 400 | 40004 | 文件大小超出限制 |
+| 上传文件为空 | 400 | 40005 | 文件为空 |
+| 资源重复（并发兜底） | 400 | 40006 | 资源已存在 |
 | 用户不存在 | 404 | 40401 | 用户不存在 |
+| 用户未设置头像 | 404 | 40402 | 用户未设置头像 |
 | 路由不存在 | 404 | 404 | 请求的资源不存在 |
 | 请求参数校验失败 | 422 | 42200 | 字段【username】字段长度不能小于限制值 |
 | 健康检查数据库不可用 | 503 | 50300 | 服务异常：数据库不可用 |
@@ -327,36 +376,108 @@ alembic revision --autogenerate -m "add_user_table"
 alembic upgrade head
 ```
 
-## 九、安全说明
+当前已有迁移版本（按时间顺序）：
+
+| 迁移脚本 | 说明 |
+| --- | --- |
+| `2026_09_11_1656_init_users_table` | users 表初始化 |
+| `2026_09_13_1030_add_user_avatar` | users.avatar 头像字段 |
+| `2026_09_15_1000_add_session_tables` | session / chat_messages / interviews 会话相关表 |
+| `2026_09_15_1100_add_resources_table` | resources 资源元数据表 + chat_messages.file_extracted_text 字段 |
+
+## 九、MinIO 对象存储
+
+文件资源采用 **元数据与原文件解耦** 架构：原文件存入 MinIO 私有桶，资源元数据（文件名、MD5、存储路径、过期时间、用途等）写入 MySQL `resources` 表，两者通过 `storage_path`（`minio://{bucket}/{object_key}`）关联。
+
+### resources 表关键字段
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | BIGINT | 自增主键 |
+| `resource_type` | TINYINT | 资源类型：0=文件，1=图片，2=音频（见 `ResourceType` 枚举） |
+| `storage_scene` | TINYINT | 存储场景：0=长过期(1月)，1=短过期(2小时)，2=只提取内容（见 `StorageScene` 枚举） |
+| `update_purpose` | TINYINT | 上传用途：0=普通资源，1=用户头像（见 `UploadPurpose` 枚举） |
+| `file_name` | VARCHAR | 客户端上传原始文件名（仅展示用，不参与存储路径） |
+| `file_hash` | VARCHAR | 文件内容 MD5，去重核心字段 |
+| `storage_path` | VARCHAR | MinIO 存储路径 `minio://{bucket}/{object_key}`；只提取场景为空串 |
+| `user_id` | BIGINT | 上传用户 ID（与 `file_hash` 组合唯一键 `uk_file_hash_user_id`） |
+| `expire_time` | DATETIME | 资源过期时间；头像资源为 `NULL`（永不过期，不参与定时清理） |
+| `create_time` | DATETIME | 创建时间，数据库 `now()` 自动填充 |
+
+> `chat_messages` 表另新增 `file_extracted_text`（MEDIUMTEXT）字段，用于存储从文件中提取的完整文本（对话上下文使用）。
+
+### 存储路径结构
+
+object_key 按 **用户 + 资源类型分目录**，内容 MD5 命名，天然支持去重：
+
+```
+user_{user_id}/{images|audio|files}/{file_hash}{ext}
+```
+
+完整存储路径：`minio://{bucket}/user_{user_id}/{images|audio|files}/{file_hash}{ext}`
+
+例：用户 7 上传一张 PNG，MD5 为 `abc123...`，存储路径为 `minio://ai-resource/user_7/images/abc123....png`。
+
+### 去重规则
+
+- **用户级去重**：同一用户上传相同内容（MD5）的文件，直接复用已存在的元数据，不重复上传 MinIO 对象，响应中 `duplicated=true`。
+- **双层兜底**：Service 层先按 `file_hash + user_id` 预查；并发场景下若仍命中数据库唯一键 `uk_file_hash_user_id`，捕获 `IntegrityError` 后回查复用，不产生重复对象。
+
+### 场景分流（storage_scene）
+
+| 场景 | 行为 | expire_time |
+| --- | --- | --- |
+| `0` 长过期 | 上传 MinIO + 写元数据 | 默认 30 天后 |
+| `1` 短过期 | 上传 MinIO + 写元数据 | 默认 2 小时后 |
+| `2` 只提取内容 | 不上传原文件、不写元数据，仅返回提取的文本 | `NULL` |
+
+### 头像特殊处理
+
+- 注册接口 `POST /api/v1/auth/register` 的头像上传采用 **两阶段** 调用，避免头像非法时产生孤儿账号：
+  1. `prepare_avatar`：先校验图片（类型/大小/空文件），不上传、不写库；
+  2. 建号成功后 `commit_avatar`：上传 MinIO、落元数据、回写 `users.avatar`。
+- 头像资源 `expire_time=None`（永不过期），被 `users.avatar` 永久引用，不参与定时清理。
+- 头像访问通过 `GET /api/v1/avatar/{user_id}` 公开代理（307 重定向到预签名 URL），`<img>` 标签可直接使用。
+
+### 过期清理
+
+- `app/core/scheduler.py` 使用 asyncio 轻量定时器，**每日 03:00** 扫描 `expire_time` 已到期记录，先删 MinIO 对象再删元数据，单条失败不阻断整体清理。
+- 定时任务由 FastAPI `lifespan` 启动与取消，适用于单 worker 部署；多 worker 各触发一次，删除操作幂等。
+- **手动清理入口**：`python -m app.core.scheduler` 可立即执行一次过期资源清理（不入循环）。
+
+## 十、安全说明
 
 - **密码哈希**：`app/security.py` 使用 bcrypt 算法，存储时不保留明文。
 - **登录鉴权（JWT）**：`app/core/jwt.py` 基于 PyJWT 签发/校验 Access/Refresh 双令牌（HS256 验签，载荷含 sub/username/type/exp/jti，两类令牌严格隔离不可混用）；`app/routers/v1/deps.py` 的 `get_current_user` 依赖在业务路由组（`/api/v1/*`）统一挂载，未登录请求一律 401(40104)；签名密钥只从配置层（`JWT_SECRET_KEY` 环境变量）读取，业务层不写死。
-- **敏感配置**：`.env.*` 包含数据库账号与密钥，已由 `.gitignore` 忽略，禁止提交；生产部署必须替换默认值。
+- **MinIO 私有桶 + 预签名 URL**：原文件存入 MinIO 私有桶，外部无法直接通过对象路径访问；前端临时访问通过 `MinioStorage.presigned_get_url` 生成带签名的预签名下载 URL，有效期由 `MINIO_PRESIGN_EXPIRY_SECONDS` 控制（默认 2 小时），过期后需重新获取。MinIO 连接密钥只从配置层读取，禁止硬编码。
+- **头像公开代理安全**：`GET /api/v1/avatar/{user_id}` 为**无鉴权公开接口**，因为 `<img>` 标签无法携带 `Authorization` 头。该接口仅返回 307 重定向到 MinIO 预签名 URL，不直接返回文件内容；预签名 URL 有时效限制，过期后浏览器再次请求即可获取新 URL。用户不存在返回 404(40401)，未设置头像返回 404(40402)。
+- **敏感配置**：`.env.*` 包含数据库账号、MinIO 密钥与 JWT 密钥，已由 `.gitignore` 忽略，禁止提交；生产部署必须替换默认值。
 - **响应脱敏**：响应模型 `UserResponse` 仅暴露 `id` 与 `username`，不返回密码字段。
 - **健康检查脱敏**：`/health` 接口在数据库不可用时只返回 `database=fail` 布尔状态，异常原始信息（连接串、驱动报错）仅写入 `logs/error.log`，不回传给调用方，避免敏感信息外泄。
 - **日志脱敏**：所有 sink 强制 `diagnose=False`，异常堆栈不打印局部变量值；生产环境关闭控制台 sink，仅落盘到文件，减少敏感信息外露面。
 - **统一异常处理**：`app/core/handlers.py` 全局捕获业务/系统/参数/框架异常，系统错误堆栈仅写入日志文件（`logs/error.log`），对外只返回通用提示与请求定位信息。
 
-## 十、冒烟测试
+## 十一、冒烟测试
 
-测试代码位于 [`tests/`](tests/)，使用 `pytest` + `httpx`（通过 `starlette.testclient.TestClient`）验证接口核心链路，不依赖外部 MySQL 服务。
+测试代码位于 [`tests/`](tests/)，使用 `pytest` + `httpx`（通过 `starlette.testclient.TestClient`）验证接口核心链路，不依赖外部 MySQL 与 MinIO 服务，当前共 **76 个用例全部通过**。
 
 ### 测试策略
 
 - **数据库隔离**：`tests/conftest.py` 用 SQLite 内存数据库 + `StaticPool` 替代 MySQL，所有 Session 共享同一连接，测试不污染真实数据库。
-- **依赖覆写**：仅覆写 `get_db`，无需真实 MySQL；JWT 鉴权不绕过，用例通过真实"注册→登录"获取访问令牌后携带 Bearer 头访问业务接口，鉴权链路被真实覆盖。
+- **MinIO 隔离**：`conftest.py` 提供 `FakeMinio` 内存版 MinIO 夹具，覆写 `get_minio_storage` 依赖，记录上传对象供断言与去重验证，不依赖真实 MinIO 服务。
+- **依赖覆写**：仅覆写 `get_db` 与 `get_minio_storage`，无需真实 MySQL/MinIO；JWT 鉴权不绕过，用例通过真实"注册→登录"获取访问令牌后携带 Bearer 头访问业务接口，鉴权链路被真实覆盖。
 - **用例隔离**：每个用例执行后自动清空所有表数据并重置限流器，保证用例间互不影响。
 
 ### 覆盖范围
 
-| 分组 | 用例数 | 覆盖内容 |
+| 测试文件 | 用例数 | 覆盖内容 |
 | --- | --- | --- |
-| 健康检查 | 2 | `/health` 服务存活 + 数据库连通性；`/docs`、`/redoc`、`/openapi.json` 文档可访问性 |
-| 用户 CRUD | 5 | 登录获取 JWT → 创建 → 查询列表 → 查询详情 → 更新 → 删除全链路 |
-| 登录鉴权 | 5 | 用户接口五种 HTTP 方法未登录统一 401(40104) |
-| 登录/JWT | 18 | `test_auth_login.py`：登录、令牌载荷、`/api/v1/auth/me` 保护、刷新换新、过期自动刷新重试闭环 |
-| 异常分支 | 7 | 用户不存在 404、用户名重复 400、密码/用户名过短 422、缺字段 422、更新/删除不存在 404 |
-| 注册/限流 | 11 | bcrypt 哈希入库、弱密码校验 400、重复用户名 400、注册限流 429 |
+| `test_smoke.py` | 33 | 健康检查、文档可访问性；用户 CRUD 全链路；用户接口五方法未登录 401；用户名重复/不存在/校验失败等异常分支；注册成功、弱密码黑名单、重复用户名、注册限流 429、带头像/无头像注册 |
+| `test_auth_login.py` | 19 | 登录成功与令牌载荷、错误密码/未知用户名/缺字段；`/api/v1/auth/me` 保护与令牌类型校验；刷新令牌换新与各类异常；过期自动刷新重试闭环 |
+| `test_rate_limit.py` | 9 | 客户端 IP 解析（可信代理跳数 0/1/2、防 XFF 伪造）；固定窗口阈值拦截与窗口重置；高并发内存保护与 fail-open |
+| `test_upload_minio.py` | 11 | MinIO 上传鉴权、图片头像回写、普通用途不回写、文档不做头像、音频上传、MD5 去重复用、只提取内容场景、空文件/超大小/类型不支持错误分支、storage_scene 非法 422；注册头像资源不过期、非法头像不触达存储 |
+| `test_avatar_proxy.py` | 4 | 有头像用户 307 重定向到预签名 URL、无头像 404(40402)、用户不存在 404(40401)、无需 JWT 鉴权 |
+| **合计** | **76** | 全部通过 |
 
 ### 运行测试
 
@@ -365,4 +486,4 @@ alembic upgrade head
 pytest tests/ -v
 ```
 
-> 真实 MySQL 连通性验证不在冒烟测试范围内，由 `/health` 接口在真实运行时承担：启动应用后访问 `http://localhost:8000/health`，数据库异常时返回 503。
+> 真实 MySQL / MinIO 连通性验证不在冒烟测试范围内：MySQL 由 `/health` 接口在真实运行时承担（启动应用后访问 `http://localhost:8000/health`，数据库异常时返回 503）；MinIO 连通性由首次上传时 `ensure_bucket` 懒触发，启动期不强依赖。

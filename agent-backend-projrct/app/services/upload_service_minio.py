@@ -70,6 +70,13 @@ ALLOWED_EXTENSIONS: dict[str, ResourceType] = {
 # 可直接按文本解码提取内容的扩展名（storage_scene=2 时使用）
 TEXT_EXTRACT_EXTENSIONS: frozenset[str] = frozenset({".txt", ".md", ".csv"})
 
+# 资源类型 → MinIO 子目录名，按类型分目录便于运维检索
+RESOURCE_TYPE_FOLDERS: dict[ResourceType, str] = {
+    ResourceType.IMAGE: "images",
+    ResourceType.AUDIO: "audio",
+    ResourceType.FILE: "files",
+}
+
 
 @dataclass
 class PreparedResource:
@@ -283,8 +290,10 @@ class MinioUploadService:
                 user=user,
             )
 
-        # 上传对象到 MinIO：object_key 按用户分目录，内容 MD5 命名
-        object_key = f"{user.id}/{file_hash}{prepared.ext}"
+        # 上传对象到 MinIO：按 用户/类型 分目录，内容 MD5 命名
+        # 路径结构：user_{user_id}/{images|audio|files}/{file_hash}{ext}
+        type_folder = RESOURCE_TYPE_FOLDERS[prepared.resource_type]
+        object_key = f"user_{user.id}/{type_folder}/{file_hash}{prepared.ext}"
         self.minio_storage.put_object(
             object_key,
             prepared.content,

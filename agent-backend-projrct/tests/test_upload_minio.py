@@ -57,7 +57,7 @@ class TestMinioUpload:
 
         # MinIO 对象确实写入，路径符合 minio://{bucket}/{user_id}/{md5}.png
         file_hash = hashlib.md5(_PNG_BYTES).hexdigest()
-        object_key = f"{user_id}/{file_hash}.png"
+        object_key = f"user_{user_id}/images/{file_hash}.png"
         assert object_key in fake_minio.objects
         assert data["storage_path"] == f"minio://ai-resource/{object_key}"
         # 返回可访问的预签名 URL

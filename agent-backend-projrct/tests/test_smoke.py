@@ -382,9 +382,9 @@ class TestAuthRegister:
         user = resp.json()["data"]
         user_id = user["id"]
 
-        # 头像路径符合 minio://{bucket}/{user_id}/{md5}.png 规则
+        # 头像路径符合 minio://{bucket}/user_{user_id}/images/{md5}.png 规则
         stored_name = f"{hashlib.md5(_PNG_BYTES).hexdigest()}.png"
-        object_key = f"{user_id}/{stored_name}"
+        object_key = f"user_{user_id}/images/{stored_name}"
         expected_path = f"minio://ai-resource/{object_key}"
         assert user["avatar"] == expected_path
 
