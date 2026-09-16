@@ -12,12 +12,14 @@ from sqlalchemy.orm import Session
 
 from app.core import BusinessException
 from app.core.jwt import decode_token
+from app.dao.resource_dao import ResourceDao
 from app.dao.user_dao import UserDao
 from app.db.database import get_db
 from app.db.models import User
 from app.enums.response_code import ResponseCode
 from app.enums.token_type import TokenType
-from app.services.file_service import FileService
+from app.integrations.minio_client import MinioStorage, get_minio_storage
+from app.services.upload_service_minio import MinioUploadService
 from app.services.user_service import UserService
 
 # Bearer 令牌提取器：从 Authorization 头解析 access token。
@@ -38,11 +40,18 @@ def get_user_service(user_dao: UserDao = Depends(get_user_dao)) -> UserService:
     return UserService(user_dao)
 
 
-def get_file_service(
+def get_resource_dao(db: Session = Depends(get_db)) -> ResourceDao:
+    """构造资源 DAO，注入当前请求的 Session。"""
+    return ResourceDao(db)
+
+
+def get_upload_service_minio(
     user_service: UserService = Depends(get_user_service),
-) -> FileService:
-    """构造文件上传业务服务，复用用户服务依赖链（头像回写共用 DAO/事务）。"""
-    return FileService(user_service)
+    resource_dao: ResourceDao = Depends(get_resource_dao),
+    minio_storage: MinioStorage = Depends(get_minio_storage),
+) -> MinioUploadService:
+    """构造 MinIO 上传服务（当前运行逻辑），注入 DAO 与 MinIO 工具。"""
+    return MinioUploadService(user_service, resource_dao, minio_storage)
 
 
 def get_current_user(

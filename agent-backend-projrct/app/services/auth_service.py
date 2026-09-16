@@ -2,7 +2,7 @@
 
 - Service 只处理业务逻辑，数据操作复用 UserService（进而走 DAO 层），不直接操作 Session。
 - 注册流程：先做弱密码校验，并预校验可选头像文件，再复用 UserService.create_user
-  完成唯一性校验与入库；建号成功后落盘头像并回写 avatar（multipart 单请求提交）。
+  完成唯一性校验与入库；建号成功后头像上传 MinIO 并回写 avatar（multipart 单请求）。
 - 登录流程：按用户名查库 + bcrypt 校验密码，通过后用 PyJWT 签发 Access/Refresh 双令牌。
 - 刷新流程：校验 Refresh Token 合法后重新签发 Access Token，实现访问令牌过期无感续期。
 - 业务错误统一抛 BusinessException，由全局异常处理器捕获。
@@ -21,22 +21,22 @@ from app.enums.token_type import TokenType
 from app.schemas.auth import AccessTokenResponse, TokenResponse
 from app.schemas.user import UserCreate
 from app.security import validate_password_strength, verify_password
-from app.services.file_service import FileService, PreparedUpload
+from app.services.upload_service_minio import MinioUploadService, PreparedResource
 from app.services.user_service import UserService
 
 logger = get_logger("auth_service")
 
 
 class AuthService:
-    """认证业务服务：注入 UserService / FileService，复用用户数据与文件存储能力。"""
+    """认证业务服务：注入 UserService / MinioUploadService，复用用户与对象存储能力。"""
 
     def __init__(
         self,
         user_service: UserService,
-        file_service: FileService,
+        upload_service: MinioUploadService,
     ) -> None:
         self.user_service = user_service
-        self.file_service = file_service
+        self.upload_service = upload_service
 
     async def register(
         self,
@@ -48,14 +48,14 @@ class AuthService:
 
         处理顺序保证非法头像不会产生孤儿账号：
         1. 弱密码业务校验（黑名单 / 字母+数字 / 禁止包含用户名）；
-        2. 头像文件预校验（仅图片、空文件 / 大小 / 类型校验），此时不落盘不写库；
+        2. 头像文件预校验（仅图片、空文件 / 大小 / 类型校验），此时不上传不写库；
         3. UserService.create_user 完成用户名唯一性校验与 bcrypt 哈希入库；
-        4. 建号成功后头像落盘 uploads/{user_id}/ 并回写 users.avatar。
+        4. 建号成功后头像上传 MinIO、资源元数据落库并回写 users.avatar。
 
         :param username: 用户名（长度 2-50，已由 Form 依赖结构校验）
         :param password: 明文密码（长度 6-128，已由 Form 依赖结构校验）
         :param avatar: 可选头像图片文件，不传则仅创建文本账号
-        :return: 新创建的用户 ORM 实例（含头像 URL，密码为 bcrypt 哈希）
+        :return: 新创建的用户 ORM 实例（含头像存储路径，密码为 bcrypt 哈希）
         """
         # 弱密码业务校验：黑名单 / 字母+数字 / 禁止包含用户名
         try:
@@ -68,19 +68,19 @@ class AuthService:
                 detail=f"username={username}",
             ) from exc
 
-        # 先预校验并读入头像（不落盘、不写库）：文件非法时直接失败，不会创建用户
-        prepared_avatar: PreparedUpload | None = None
+        # 先预校验并读入头像（不上传、不写库）：文件非法时直接失败，不会创建用户
+        prepared_avatar: PreparedResource | None = None
         if avatar is not None:
-            prepared_avatar = await self.file_service.prepare_avatar(avatar)
+            prepared_avatar = await self.upload_service.prepare_avatar(avatar)
 
         # 复用用户服务：内部完成用户名唯一性校验与 bcrypt 哈希入库
         user = self.user_service.create_user(
             UserCreate(username=username, password=password)
         )
 
-        # 建号成功后再落盘头像并回写 avatar 字段
+        # 建号成功后再上传 MinIO 并回写 avatar 字段
         if prepared_avatar is not None:
-            self.file_service.commit_avatar(user, prepared_avatar)
+            self.upload_service.commit_avatar(user, prepared_avatar)
         return user
 
     def login(self, username: str, password: str) -> TokenResponse:

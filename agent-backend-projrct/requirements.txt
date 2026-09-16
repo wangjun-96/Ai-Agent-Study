@@ -37,6 +37,9 @@ loguru==0.7.2
 # 表单/文件上传解析（multipart/form-data），FastAPI UploadFile 依赖
 python-multipart
 
+# MinIO 对象存储 SDK（原文件存储，元数据保留在 MySQL）
+minio
+
 # HTTP 客户端，用于编写接口冒烟测试
 httpx
 

@@ -30,12 +30,15 @@ class ResponseCode(IntEnum):
     FILE_TYPE_NOT_ALLOWED = 40003  # 文件类型不在允许列表
     FILE_TOO_LARGE = 40004  # 文件大小超过上限
     FILE_EMPTY = 40005  # 上传文件为空
+    RESOURCE_DUPLICATE = 40006  # 并发兜底：资源已存在（MD5+用户）
 
     # 参数校验相关 422xx（与 HTTP 422 Unprocessable Entity 对齐）
     PARAM_INVALID = 42200
 
     # 资源不存在 404xx
     USER_NOT_FOUND = 40401
+    # 用户未设置头像或头像存储路径非法
+    AVATAR_NOT_FOUND = 40402
 
     # 限流相关 429xx（与 HTTP 429 Too Many Requests 对齐）
     RATE_LIMITED = 42901
@@ -59,7 +62,9 @@ CODE_MESSAGES: dict[ResponseCode, str] = {
     ResponseCode.FILE_TYPE_NOT_ALLOWED: "不支持的文件类型",
     ResponseCode.FILE_TOO_LARGE: "上传文件大小超出限制",
     ResponseCode.FILE_EMPTY: "上传文件不能为空",
+    ResponseCode.RESOURCE_DUPLICATE: "文件已存在，请勿重复上传",
     ResponseCode.USER_NOT_FOUND: "用户不存在",
+    ResponseCode.AVATAR_NOT_FOUND: "用户未设置头像",
     ResponseCode.RATE_LIMITED: "请求过于频繁，请稍后再试",
     ResponseCode.SYSTEM_ERROR: "系统繁忙，请稍后再试",
     ResponseCode.HEALTH_CHECK_FAILED: "服务异常：数据库不可用",

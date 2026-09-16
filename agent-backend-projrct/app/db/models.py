@@ -13,11 +13,13 @@ from sqlalchemy import (
     Index,
     Integer,
     JSON,
+    SmallInteger,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.mysql import MEDIUMTEXT
+from sqlalchemy.dialects.mysql import MEDIUMTEXT, TINYINT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -26,6 +28,14 @@ from app.db.base import Base
 # 测试环境使用 SQLite 内存库，其方言编译器没有 MEDIUMTEXT，
 # 通过 with_variant 在 SQLite 下回退为 TEXT，保证同一份模型两端均可建表
 LargeText = MEDIUMTEXT().with_variant(Text(), "sqlite")
+
+# 小整数字段类型：生产 MySQL 使用 TINYINT（资源类型/存储场景/上传用途）；
+# SQLite 方言没有 TINYINT，回退为 SmallInteger，保证同一份模型两端均可建表
+TinyInt = TINYINT().with_variant(SmallInteger(), "sqlite")
+
+# 自增主键类型：生产 MySQL 使用 BIGINT；SQLite 只有 INTEGER PRIMARY KEY
+# 才有 rowid 自增语义（BIGINT 主键不会自动生成 ID），故回退为 Integer
+BigIntPrimaryKey = BigInteger().with_variant(Integer(), "sqlite")
 
 
 class User(Base):
@@ -108,6 +118,7 @@ class ChatMessage(Base):
     - request_id    ：请求唯一标识，加索引加速按请求追踪
     - request_text  ：请求文本（MEDIUMTEXT，支持大文本存储）
     - response_text ：响应文本（MEDIUMTEXT，支持大文本存储）
+    - file_extracted_text：从文件中提取的完整文本（对话上下文用），无文件时为空
     - create_at     ：消息创建时间，Unix 秒时间戳
     - 复合索引       ：(session_id, create_at)，按会话拉取消息并按时间排序
     """
@@ -147,6 +158,10 @@ class ChatMessage(Base):
     # 响应文本（MySQL 为 MEDIUMTEXT，SQLite 测试库回退为 TEXT）
     response_text: Mapped[str] = mapped_column(
         LargeText, nullable=False, comment="响应文本"
+    )
+    # 从文件中提取的完整文本（对话上下文用）：仅携带文件的消息有值，其余为空
+    file_extracted_text: Mapped[str | None] = mapped_column(
+        LargeText, nullable=True, comment="从文件中提取的完整文本（对话上下文用）"
     )
     # 创建时间：Unix 秒时间戳，默认 UNIX_TIMESTAMP()
     create_at: Mapped[int] = mapped_column(
@@ -232,4 +247,86 @@ class Interview(Base):
     # 复合索引：session_id + message_id
     __table_args__ = (
         Index("ix_interviews_session_id_message_id", "session_id", "message_id"),
+    )
+
+
+class Resource(Base):
+    """资源元数据表：统一管理音频、文件、图片，元数据与文件解耦。
+
+    - 原文件存 MinIO，本表只存元数据；
+    - file_hash 为文件内容 MD5，与 user_id 组成联合唯一键，实现用户级去重；
+    - storage_scene=2（EXTRACT_ONLY）时不落原文件，不产生本表记录，
+      提取文本由调用方写入 chat_messages.file_extracted_text。
+
+    字段：
+    - id             ：自增主键
+    - resource_type  ：资源类型（0=文件，1=图片，2=音频），见 ResourceType 枚举
+    - storage_scene  ：存储场景（0=长过期1个月，1=短过期2小时），见 StorageScene 枚举
+    - update_purpose ：上传用途（0=普通资源，1=用户头像），见 UploadPurpose 枚举
+    - file_name      ：用户上传原始文件名
+    - file_hash      ：文件 MD5，去重核心字段
+    - storage_path   ：MinIO 路径，格式 minio://{bucket}/{object_key}
+    - user_id        ：上传用户 ID
+    - expire_time    ：资源过期时间，null 表示不过期
+    - create_time    ：创建时间，数据库自动填充
+    - 联合唯一键      ：(file_hash, user_id)，用户 + MD5 去重，数据库兜底
+    """
+
+    __tablename__ = "resources"
+
+    # 自增主键（MySQL BIGINT，SQLite 回退 Integer 以支持自增）
+    id: Mapped[int] = mapped_column(
+        BigIntPrimaryKey,
+        primary_key=True,
+        autoincrement=True,
+        comment="资源主键ID",
+    )
+    # 资源类型：0=文件，1=图片，2=音频（见 ResourceType 枚举）
+    resource_type: Mapped[int] = mapped_column(
+        TinyInt, nullable=False, comment="资源类型：0=文件，1=图片，2=音频"
+    )
+    # 存储场景：0=长过期（1个月），1=短过期（2小时）（见 StorageScene 枚举）
+    storage_scene: Mapped[int] = mapped_column(
+        TinyInt,
+        nullable=False,
+        server_default="0",
+        comment="存储场景：0=长过期时间（1个月），1=短过期时间（2小时）",
+    )
+    # 上传用途：0=普通资源，1=用户头像（见 UploadPurpose 枚举）
+    update_purpose: Mapped[int] = mapped_column(
+        TinyInt,
+        nullable=False,
+        server_default="0",
+        comment="上传用途：0=普通资源，1=用户头像",
+    )
+    # 用户上传原始文件名
+    file_name: Mapped[str] = mapped_column(
+        String(255), nullable=False, comment="用户上传原始文件名"
+    )
+    # 文件 MD5：去重核心字段
+    file_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="文件MD5，去重核心字段"
+    )
+    # MinIO 对象存储路径：minio://{bucket}/{object_key}
+    storage_path: Mapped[str] = mapped_column(
+        String(512), nullable=False, comment="MinIO对象存储路径"
+    )
+    # 上传用户 ID
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, comment="上传用户ID"
+    )
+    # 资源过期时间：到期后定时任务先删 MinIO 对象再删元数据；null 表示不过期
+    expire_time: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, comment="资源过期时间"
+    )
+    # 创建时间：由数据库自动填充当前时间
+    create_time: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False, comment="创建时间"
+    )
+
+    # 联合唯一键：file_hash + user_id，用户级 MD5 去重，并发场景数据库兜底
+    __table_args__ = (
+        UniqueConstraint(
+            "file_hash", "user_id", name="uk_file_hash_user_id"
+        ),
     )

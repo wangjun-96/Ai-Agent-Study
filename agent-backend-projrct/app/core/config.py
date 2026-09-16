@@ -76,12 +76,32 @@ class Settings(BaseSettings):
     TRUSTED_PROXY_HOPS: int = 0
 
     # 文件上传：本地存储根目录（相对路径相对于项目根目录解析），
-    # 实际上传文件按 uploads/{user_id}/ 分用户目录存放
+    # 实际上传文件按 uploads/{user_id}/ 分用户目录存放。
+    # 仅旧本地逻辑 file_service.py 使用（教学保留，运行逻辑已切换至 MinIO）
     UPLOAD_DIR: str = "uploads"
     # 上传文件访问 URL 前缀，与 main.py 中 StaticFiles 挂载路径保持一致
     UPLOAD_URL_PREFIX: str = "/uploads"
     # 单个上传文件大小上限（字节），默认 10MB，超限返回业务错误 40004
     UPLOAD_MAX_SIZE: int = 10 * 1024 * 1024
+
+    # MinIO 对象存储连接配置（敏感信息从环境变量注入，禁止硬编码到业务层）
+    # 服务地址，形如 host:port（不含 scheme）
+    MINIO_ENDPOINT: str = "localhost:9000"
+    # 访问密钥
+    MINIO_ACCESS_KEY: str = "minioadmin"
+    # 秘密密钥
+    MINIO_SECRET_KEY: str = "minioadmin"
+    # 资源桶名
+    MINIO_BUCKET: str = "ai-resource"
+    # 是否启用 HTTPS
+    MINIO_SECURE: bool = False
+    # 预签名下载 URL 有效期（秒），供前端临时访问私有桶对象
+    MINIO_PRESIGN_EXPIRY_SECONDS: int = 2 * 60 * 60
+
+    # 资源过期策略：长过期场景（storage_scene=0）保留天数，默认 1 个月
+    RESOURCE_LONG_EXPIRE_DAYS: int = 30
+    # 资源过期策略：短过期场景（storage_scene=1）保留小时数，默认 2 小时
+    RESOURCE_SHORT_EXPIRE_HOURS: int = 2
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),

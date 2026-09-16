@@ -17,7 +17,7 @@ from app.core.responses import ApiResponse
 from app.db.models import User
 from app.routers.v1.deps import (
     get_current_user,
-    get_file_service,
+    get_upload_service_minio,
     get_user_service,
 )
 from app.schemas.auth import (
@@ -28,7 +28,7 @@ from app.schemas.auth import (
 )
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
-from app.services.file_service import FileService
+from app.services.upload_service_minio import MinioUploadService
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/auth", tags=["认证鉴权"])
@@ -42,10 +42,10 @@ _VALIDATION_ERROR_DOC = {
 
 def get_auth_service(
     user_service: UserService = Depends(get_user_service),
-    file_service: FileService = Depends(get_file_service),
+    upload_service: MinioUploadService = Depends(get_upload_service_minio),
 ) -> AuthService:
-    """构造认证业务服务，复用用户/文件服务依赖链（DAO/Session 注入）。"""
-    return AuthService(user_service, file_service)
+    """构造认证业务服务，复用用户服务与 MinIO 上传服务依赖链。"""
+    return AuthService(user_service, upload_service)
 
 
 @router.post(
@@ -101,7 +101,7 @@ async def register(
 
     - 弱密码校验：黑名单 + 必须同时包含字母和数字 + 禁止包含用户名；
     - 密码经 bcrypt 哈希后入库，禁止明文存储；
-    - 头像文件先校验后落盘，文件非法（类型/大小/空）时不会创建用户；
+    - 头像文件先校验后上传 MinIO，文件非法（类型/大小/空）时不会创建用户；
     - 用户名重复返回 400，头像不合法返回 400(40003~40005)，触发限流返回 429。
     """
     user = await service.register(username, password, avatar)

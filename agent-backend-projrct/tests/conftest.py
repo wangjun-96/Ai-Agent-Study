@@ -24,6 +24,7 @@ from app.core.rate_limit import register_rate_limiter
 from app.db.base import Base
 from app.db.database import get_db
 from app.db.models import User  # noqa: F401  # 触发模型注册，确保建表
+from app.integrations.minio_client import MinioStorage, get_minio_storage
 from app.main import app
 
 # ---------------------------------------------------------------------------
@@ -118,6 +119,47 @@ def db_session():
         yield db
     finally:
         db.close()
+
+
+class FakeMinio:
+    """内存版 MinIO：记录上传对象，供断言与去重验证，不依赖真实服务。"""
+
+    BUCKET = "ai-resource"
+
+    def __init__(self) -> None:
+        # object_key -> (内容, content_type)
+        self.objects: dict[str, tuple[bytes, str]] = {}
+
+    def put_object(self, object_key, data, content_type="application/octet-stream"):
+        self.objects[object_key] = (data, content_type)
+
+    def delete_object(self, object_key, bucket=None):
+        self.objects.pop(object_key, None)
+
+    def presigned_get_url(self, object_key, expiry_seconds):
+        return f"https://fake-minio/{object_key}?expires={expiry_seconds}"
+
+    def presigned_url_from_path(self, storage_path, expiry_seconds):
+        parsed = MinioStorage.parse_storage_path(storage_path)
+        if parsed is None:
+            return None
+        return f"https://fake-minio/{parsed[1]}?expires={expiry_seconds}"
+
+    def build_storage_path(self, object_key):
+        return f"minio://{self.BUCKET}/{object_key}"
+
+    @staticmethod
+    def parse_storage_path(storage_path):
+        # 直接复用真实解析逻辑，保证编解码一致
+        return MinioStorage.parse_storage_path(storage_path)
+
+
+@pytest.fixture()
+def fake_minio(client):
+    """注入内存 MinIO 并返回其引用（client fixture 结束后自动清理覆写）。"""
+    fake = FakeMinio()
+    client.app.dependency_overrides[get_minio_storage] = lambda: fake
+    return fake
 
 
 @pytest.fixture(autouse=True)

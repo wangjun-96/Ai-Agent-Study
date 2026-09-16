@@ -34,13 +34,13 @@
           "认证鉴权"
         ],
         "summary": "用户注册",
-        "description": "外部用户自助注册，无需鉴权。\n\n- 弱密码校验：命中常见弱密码黑名单 / 必须同时包含字母和数字 / 禁止包含用户名；\n- 密码经 bcrypt 哈希后入库，响应不返回密码；\n- 接口限流：固定窗口按客户端 IP 计数，默认 5 次/分钟，超限返回 429。",
+        "description": "外部用户自助注册，无需鉴权，请求体为 **multipart/form-data**。\n\n- 表单字段 `username`、`password` 为必填文本，`avatar` 为**可选**头像图片文件；\n- 头像仅接受图片（jpg/jpeg/png/gif/webp/bmp），随注册请求一并保存并写入 users.avatar，不传头像也可正常注册；\n- 弱密码校验：命中常见弱密码黑名单 / 必须同时包含字母和数字 / 禁止包含用户名；\n- 密码经 bcrypt 哈希后入库，响应不返回密码；\n- 接口限流：固定窗口按客户端 IP 计数，默认 5 次/分钟，超限返回 429。",
         "operationId": "register_api_v1_auth_register_post",
         "requestBody": {
           "content": {
-            "application/json": {
+            "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/RegisterRequest"
+                "$ref": "#/components/schemas/Body_register_api_v1_auth_register_post"
               }
             }
           },
@@ -58,7 +58,7 @@
             }
           },
           "400": {
-            "description": "业务失败：密码强度不足(40002) 或 用户名已存在(40001)",
+            "description": "业务失败：密码强度不足(40002) / 用户名已存在(40001) / 头像类型不支持(40003) / 头像超 10MB(40004) / 头像为空文件(40005)",
             "content": {
               "application/json": {
                 "schema": {
@@ -563,6 +563,119 @@
         }
       }
     },
+    "/api/v1/files/upload": {
+      "post": {
+        "tags": [
+          "文件管理"
+        ],
+        "summary": "通用文件上传（MinIO 对象存储）",
+        "description": "需登录后调用（请求头携带 `Authorization: Bearer \u003Caccess_token\u003E`），以 multipart/form-data 上传单个文件（表单字段名 `file`）。\n\n- 自动识别资源类型：**文件**（0）/**图片**（1）/**音频**（2）；\n- `storage_scene`：0=长过期（1 个月），1=短过期（2 小时），2=只提取内容不上传原文件；\n- `upload_purpose`：0=普通资源，1=头像；仅当 1 且资源为图片时更新 users.avatar；\n- 用户级去重：同一用户上传相同 MD5 文件直接复用，不重复存储；\n- 允许的图片：jpg/jpeg/png/gif/webp/bmp；音频：mp3/wav/m4a/aac/ogg/flac；文件：pdf/doc/docx/xls/xlsx/ppt/pptx/txt/md/csv；\n- 空文件返回 400(40005)，超 10MB 返回 400(40004)，类型不支持返回 400(40003)。",
+        "operationId": "upload_file_api_v1_files_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_file_api_v1_files_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ResourceUploadResult_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录后上传",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "文件为空(40005) / 超出大小限制(40004) / 类型不支持(40003)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "缺少 file 字段 / storage_scene、upload_purpose 取值非法(42200)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/avatar/{user_id}": {
+      "get": {
+        "tags": [
+          "头像代理"
+        ],
+        "summary": "头像代理（307 重定向到 MinIO 预签名 URL）",
+        "description": "公开接口，无需鉴权。前端直接用作 `\u003Cimg src\u003E` 地址：\n\n```html\n\u003Cimg src=\"/api/v1/avatar/{user_id}\" /\u003E\n```\n\n- 后端查询 users.avatar 存储路径（minio://...）；\n- 生成 MinIO 预签名下载 URL（有效期默认 2 小时）；\n- 返回 307 重定向，浏览器自动跟随下载图片；\n- 用户不存在返回 404(40401)，未设置头像返回 404(40402)。",
+        "operationId": "get_avatar_api_v1_avatar__user_id__get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "用户不存在(40401) / 用户未设置头像(40402)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "summary": "健康检查",
@@ -651,6 +764,38 @@
           "message"
         ],
         "title": "ApiResponse[AccessTokenResponse]"
+      },
+      "ApiResponse_ResourceUploadResult_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "业务状态码，0 表示成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "中文提示信息"
+          },
+          "data": {
+            "anyOf": [
+              {
+
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "业务数据，失败时为 null"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiResponse[ResourceUploadResult]"
       },
       "ApiResponse_TokenResponse_": {
         "properties": {
@@ -748,6 +893,81 @@
         ],
         "title": "ApiResponse[list[UserResponse]]"
       },
+      "Body_register_api_v1_auth_register_post": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Username",
+            "description": "用户名"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 6,
+            "title": "Password",
+            "description": "密码（明文传输，依赖 HTTPS 保护）"
+          },
+          "avatar": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar",
+            "description": "可选头像图片（jpg/jpeg/png/gif/webp/bmp，≤10MB）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "Body_register_api_v1_auth_register_post"
+      },
+      "Body_upload_file_api_v1_files_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "待上传的单个文件"
+          },
+          "storage_scene": {
+            "$ref": "#/components/schemas/StorageScene",
+            "description": "存储场景：0=长过期(1个月)，1=短过期(2小时)，2=只提取内容",
+            "default": 0
+          },
+          "upload_purpose": {
+            "$ref": "#/components/schemas/UploadPurpose",
+            "description": "上传用途：0=普通资源，1=用户头像",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_file_api_v1_files_upload_post"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
       "LoginRequest": {
         "properties": {
           "username": {
@@ -789,30 +1009,17 @@
         "title": "RefreshTokenRequest",
         "description": "刷新令牌请求体：仅携带登录时签发的 Refresh Token。"
       },
-      "RegisterRequest": {
-        "properties": {
-          "username": {
-            "type": "string",
-            "maxLength": 50,
-            "minLength": 2,
-            "title": "Username",
-            "description": "用户名"
-          },
-          "password": {
-            "type": "string",
-            "maxLength": 128,
-            "minLength": 6,
-            "title": "Password",
-            "description": "密码（明文，存储前会哈希）"
-          }
-        },
-        "type": "object",
-        "required": [
-          "username",
-          "password"
-        ],
-        "title": "RegisterRequest",
-        "description": "注册请求体：字段同用户创建（username/password），复用其 Pydantic 约束。\n\n继承 UserCreate 后可直接传入 UserService.create_user，无需重复定义字段；\n独立类型便于注册接口在 Swagger 中语义化展示及后续扩展注册专属字段。"
+      "StorageScene": {
+        "type": "integer",
+        "enum": [0, 1, 2],
+        "title": "StorageScene",
+        "description": "资源存储场景。"
+      },
+      "UploadPurpose": {
+        "type": "integer",
+        "enum": [0, 1],
+        "title": "UploadPurpose",
+        "description": "资源上传用途。"
       },
       "UserCreate": {
         "properties": {
@@ -873,6 +1080,46 @@
         "type": "object",
         "title": "UserUpdate",
         "description": "更新用户请求体，所有字段可选。"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
       }
     },
     "securitySchemes": {

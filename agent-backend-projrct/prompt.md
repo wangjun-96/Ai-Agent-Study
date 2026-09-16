@@ -82,6 +82,7 @@
     - request_id:字符串(64)，非空，索引
     - request_text:MEDIUMTEXT，非空,请求文本
     - response_text:MEDIUMTEXT，非空，响应文本
+    - filr_extracted_text, 从文件中提取的完整文本（对话上下文用）
     - create_at :Unix 秒时间戳，非空
     - 要求：在 session_id 与 created_at 上创建复合索引（按会话拉取并按时间排序）
 
@@ -105,3 +106,44 @@
         "created_at":1694502400,
     }
     ’‘’
+
+
+
+# 创建 资源元数据表：统一管理音频、文件、图片，MD5实现用户级去重
+
+CREATE TABLE `resources` (
+    `id` bigint not null AUTO_INCREMENT PRIMARY KEY comment '资源主键ID',
+    `resource_type` TINYINT not null comment '资源类型：0=文件，1=图片，2=音频',
+    `storage_scene` TINYINT not null default 0 comment '存储场景：0= 长过期时间（1个月），1= 短过期时间（2小时）,2= 只提取内容不存原文件/音频',
+    `update_purpose` TINYINT not null default 0 comment '上传用途：0= 普通资源，1= 用户头像',
+    `file_name` VARCHAR(255) not null comment '用户上传原始文件名',
+    `file_hash` VARCHAR(64) not null comment '文件MD5,去重核心字段',
+    `storage_path` VARCHAR(512) not null comment 'MinIO对象存储路径',
+    `user_id` bigint not null comment '上传用户ID',
+    `expire_time` datetime default null comment '资源过期时间',
+    `create_time` datetime DEFAULT CURRENT_TIMESTAMP comment '创建时间',
+    unique key `uk_file_hash_user_id` (`file_hash`, `user_id`) comment '用户+MD5联合去重'
+) engine=InnoDB default charset=utf8mb4 comment '资源元数据表';
+
+# 请按”元数据与文件解耦“架构，完成 MinIO 对象存储改造。
+
+目标：
+
+- MySQL resources 存元数据；
+- MinIO 存原文件；
+- /upload/file 接口路径不变。
+
+要求：
+
+1. 保留去重规则： UNIQUE(file_hash, user_id)(代码层可预查，数据库兜底)。
+2. 上传改为 MinIO put_object; storage_path 格式：minio://{bucket}/{}/{object_key}
+3. storage_scene = 2 : 只提取文件内容，不上传原文件。
+4. 新增 upload_purpose 入参（0=general, 1=avatar）,仅 update_purpose = 1 且图片类型时更新 users.avatar 字段。
+5. 创建 MinIO 客户端，并在环境变量中配置连接变量。
+6. 教学/运行分离：
+    - file_service.py 保留旧本地逻辑(不运行)；
+    - 新建 upload_service_minio.py 作为运行逻辑；
+    - /upload/file 路由切换到 upload_service_minio.py；
+7. 新增过期清理：每天03：00扫描expire_time,先删MioIO对象，再删元数据；
+8. 更新requirements.txt：添加 minio
+9. 代码简洁，指责单一、注释清晰、无冗余代码。

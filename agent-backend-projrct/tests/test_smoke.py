@@ -6,7 +6,7 @@
 3. 鉴权分支：用户接口未登录统一 401(40104)；业务异常分支：用户不存在(404)、
    用户名重复(400)、参数校验失败(422)。
 4. 注册接口：注册成功且密码 bcrypt 哈希入库、弱密码校验(400)、限流(429)；
-   multipart 表单可选头像：带头像注册成功落盘并回写 avatar，头像非法拒绝且不建号。
+   multipart 表单可选头像：带头像注册成功上传 MinIO 并回写 avatar，头像非法拒绝且不建号。
 
 运行命令：pytest tests/test_smoke.py -v
 """
@@ -16,7 +16,6 @@ import hashlib
 import pytest
 from sqlalchemy import select
 
-from app.core.config import settings
 from app.db.models import User
 from app.security import verify_password
 
@@ -371,12 +370,9 @@ class TestAuthRegister:
         assert resp.json()["data"]["avatar"] is None
 
     def test_register_with_avatar_saves_file_and_updates_avatar(
-        self, client, db_session, monkeypatch, tmp_path
+        self, client, db_session, fake_minio
     ):
-        """带头像注册：201 建号 + 头像按 uploads/{user_id}/{md5}.png 落盘 + avatar 回写。"""
-        # 上传目录重定向到临时目录，避免测试产物污染项目 uploads/
-        monkeypatch.setattr(settings, "UPLOAD_DIR", str(tmp_path))
-
+        """带头像注册：201 建号 + 头像上传 MinIO（{user_id}/{md5}.png）+ avatar 回写。"""
         resp = client.post(
             "/api/v1/auth/register",
             data={"username": "avataruser", "password": "Goodpass1"},
@@ -386,22 +382,22 @@ class TestAuthRegister:
         user = resp.json()["data"]
         user_id = user["id"]
 
-        # 响应头像 URL 符合 uploads/{user_id}/{md5}.png 规则
+        # 头像路径符合 minio://{bucket}/{user_id}/{md5}.png 规则
         stored_name = f"{hashlib.md5(_PNG_BYTES).hexdigest()}.png"
-        expected_url = f"/uploads/{user_id}/{stored_name}"
-        assert user["avatar"] == expected_url
+        object_key = f"{user_id}/{stored_name}"
+        expected_path = f"minio://ai-resource/{object_key}"
+        assert user["avatar"] == expected_path
 
-        # 文件确实落盘，内容与上传字节一致（MD5 去重命名）
-        stored_path = tmp_path / str(user_id) / stored_name
-        assert stored_path.exists()
-        assert stored_path.read_bytes() == _PNG_BYTES
+        # MinIO 对象确实写入，内容与上传字节一致
+        assert object_key in fake_minio.objects
+        assert fake_minio.objects[object_key][0] == _PNG_BYTES
 
         # 数据库 users.avatar 已回写
         db_user = db_session.scalars(
             select(User).where(User.username == "avataruser")
         ).first()
         assert db_user is not None
-        assert db_user.avatar == expected_url
+        assert db_user.avatar == expected_path
 
         # 自动登录后 /api/v1/auth/me 返回的头像与注册响应一致
         login_resp = client.post(
@@ -413,7 +409,7 @@ class TestAuthRegister:
             "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
         )
         assert me_resp.status_code == 200
-        assert me_resp.json()["data"]["avatar"] == expected_url
+        assert me_resp.json()["data"]["avatar"] == expected_path
 
     def test_register_with_non_image_avatar_rejected(self, client, db_session):
         """头像为文档类型：返回 400(40003)，且不创建用户（无孤儿账号）。"""
