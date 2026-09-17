@@ -630,6 +630,472 @@
         ]
       }
     },
+    "/api/v1/sessions/": {
+      "get": {
+        "tags": [
+          "会话与聊天"
+        ],
+        "summary": "会话列表分页",
+        "description": "返回当前用户的会话列表，按创建时间倒序，支持 page / page_size 分页。可选传 session_model 按模式过滤（0=学习，1=面试，2=笔记）。",
+        "operationId": "list_sessions_api_v1_sessions__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SessionModel"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按会话模式过滤：0=学习，1=面试，2=笔记",
+              "title": "Session Model"
+            },
+            "description": "按会话模式过滤：0=学习，1=面试，2=笔记"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码，从 1 开始",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码，从 1 开始"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "每页条数，最大 100",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "每页条数，最大 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_PageResult_SessionResponse__"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录或静默刷新后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "会话与聊天"
+        ],
+        "summary": "创建会话",
+        "description": "创建会话主题，需传入 title（标题）与 session_model（0=学习，1=面试，2=笔记）。",
+        "operationId": "create_session_api_v1_sessions__post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_SessionResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录或静默刷新后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}": {
+      "put": {
+        "tags": [
+          "会话与聊天"
+        ],
+        "summary": "编辑会话",
+        "description": "按会话 ID 编辑会话，支持修改 title 与 session_model，仅更新传入的非空字段，仅会话归属用户可操作，越权返回 404。",
+        "operationId": "update_session_api_v1_sessions__session_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_SessionResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录或静默刷新后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "会话不存在(40403)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "会话与聊天"
+        ],
+        "summary": "删除会话（级联）",
+        "description": "级联删除会话：删除会话下全部聊天消息、关联面试记录，并解析消息 segments 收集 resource_id，删除关联资源的 MinIO 对象与元数据。需传入 session_model 查询参数校验会话类型，类型不匹配返回 404。",
+        "operationId": "delete_session_api_v1_sessions__session_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "session_model",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SessionModel",
+              "description": "会话模式：0=学习，1=面试，2=笔记（校验会话类型匹配）"
+            },
+            "description": "会话模式：0=学习，1=面试，2=笔记（校验会话类型匹配）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录或静默刷新后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "会话不存在(40403)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}/messages": {
+      "get": {
+        "tags": [
+          "会话与聊天"
+        ],
+        "summary": "分页获取聊天消息",
+        "description": "按会话分页获取聊天消息，返回 request_text / response_text + request_segments / response_segments + status / interview_id / create_at。status 取自关联面试状态，非面试消息为 null。",
+        "operationId": "list_messages_api_v1_sessions__session_id__messages_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码，从 1 开始",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码，从 1 开始"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "每页条数，最大 100",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "每页条数，最大 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_PageResult_MessageResponse__"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录或静默刷新后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "会话不存在(40403)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/interviews/{interview_id}": {
+      "get": {
+        "tags": [
+          "面试记录"
+        ],
+        "summary": "获取面试详情",
+        "description": "按面试 ID 获取面试详情文本，包含 qa_object（一问一答对象）。需面试归属当前用户，越权访问统一返回 404。",
+        "operationId": "get_interview_api_v1_interviews__interview_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "interview_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Interview Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_InterviewResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权：缺失/过期/伪造访问令牌(40104)，需登录或静默刷新后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求参数校验失败(42200)，detail 中返回字段级错误明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "面试记录不存在(40404)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/avatar/{user_id}": {
       "get": {
         "tags": [
@@ -765,6 +1231,102 @@
         ],
         "title": "ApiResponse[AccessTokenResponse]"
       },
+      "ApiResponse_InterviewResponse_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "业务状态码，0 表示成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "中文提示信息"
+          },
+          "data": {
+            "anyOf": [
+              {
+
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "业务数据，失败时为 null"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiResponse[InterviewResponse]"
+      },
+      "ApiResponse_PageResult_MessageResponse__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "业务状态码，0 表示成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "中文提示信息"
+          },
+          "data": {
+            "anyOf": [
+              {
+
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "业务数据，失败时为 null"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiResponse[PageResult[MessageResponse]]"
+      },
+      "ApiResponse_PageResult_SessionResponse__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "业务状态码，0 表示成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "中文提示信息"
+          },
+          "data": {
+            "anyOf": [
+              {
+
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "业务数据，失败时为 null"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiResponse[PageResult[SessionResponse]]"
+      },
       "ApiResponse_ResourceUploadResult_": {
         "properties": {
           "code": {
@@ -796,6 +1358,38 @@
           "message"
         ],
         "title": "ApiResponse[ResourceUploadResult]"
+      },
+      "ApiResponse_SessionResponse_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "业务状态码，0 表示成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "中文提示信息"
+          },
+          "data": {
+            "anyOf": [
+              {
+
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "业务数据，失败时为 null"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiResponse[SessionResponse]"
       },
       "ApiResponse_TokenResponse_": {
         "properties": {
@@ -1009,6 +1603,66 @@
         "title": "RefreshTokenRequest",
         "description": "刷新令牌请求体：仅携带登录时签发的 Refresh Token。"
       },
+      "SessionCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title",
+            "description": "会话标题"
+          },
+          "session_model": {
+            "$ref": "#/components/schemas/SessionModel",
+            "description": "会话模式：0=学习，1=面试，2=笔记"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "session_model"
+        ],
+        "title": "SessionCreate",
+        "description": "创建会话请求体。"
+      },
+      "SessionModel": {
+        "type": "integer",
+        "enum": [0, 1, 2],
+        "title": "SessionModel",
+        "description": "会话模式，写入 sessions.session_model 字段。"
+      },
+      "SessionUpdate": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "会话标题（不传表示不修改）"
+          },
+          "session_model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "会话模式（不传表示不修改）"
+          }
+        },
+        "type": "object",
+        "title": "SessionUpdate",
+        "description": "编辑会话请求体：title 与 session_model 均可选，支持部分更新。\n\n不传或传空的字段视为\"不修改\"，由 Service 层统一处理。"
+      },
       "StorageScene": {
         "type": "integer",
         "enum": [0, 1, 2],
@@ -1052,34 +1706,32 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 50,
-                "minLength": 2
+                "maxLength": 50
               },
               {
                 "type": "null"
               }
             ],
             "title": "Username",
-            "description": "用户名"
+            "description": "用户名（不传或空字符串表示不修改）"
           },
           "password": {
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 128,
-                "minLength": 6
+                "maxLength": 128
               },
               {
                 "type": "null"
               }
             ],
             "title": "Password",
-            "description": "新密码"
+            "description": "新密码（不传或空字符串表示不修改）"
           }
         },
         "type": "object",
         "title": "UserUpdate",
-        "description": "更新用户请求体，所有字段可选。"
+        "description": "更新用户请求体，所有字段可选。\n\n字段不传或传空字符串均视为\"不修改\"，由 Service 层统一处理。\nmin_length 约束在 UserCreate 中强制，此处放宽以兼容部分更新场景。"
       },
       "ValidationError": {
         "properties": {

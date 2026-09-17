@@ -8,10 +8,12 @@
 - users   ：用户管理 CRUD，路由组统一挂载 JWT 鉴权
 - files   ：文件上传，路由组统一挂载 JWT 鉴权
 - avatar  ：头像公开代理，无鉴权（供 <img> 标签直接访问）
+- sessions：会话与聊天消息，路由组统一挂载 JWT 鉴权
+- interviews：面试记录，路由组统一挂载 JWT 鉴权
 """
 from fastapi import APIRouter
 
-from app.routers.v1 import auth, avatar, files, users
+from app.routers.v1 import auth, avatar, files, interviews, sessions, users
 
 # v1 统一聚合路由：main.py 只挂载这一个
 api_router = APIRouter()
@@ -22,6 +24,8 @@ api_router.include_router(auth.router)
 # 业务路由：各路由组内部通过 dependencies 统一挂载 JWT 登录鉴权
 api_router.include_router(users.router)
 api_router.include_router(files.router)
+api_router.include_router(sessions.router)
+api_router.include_router(interviews.router)
 
 # 头像公开代理路由：无 JWT 鉴权，供前端 <img src="/api/v1/avatar/{user_id}"> 直接使用
 api_router.include_router(avatar.router)

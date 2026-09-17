@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretBottom, SwitchButton, UserFilled } from '@element-plus/icons-vue'
@@ -16,6 +16,19 @@ const activeTab = computed(() => route.path)
 
 /** 头部展示的用户名：用户信息加载完成前兜底显示 */
 const displayName = computed(() => userStore.username || '用户')
+
+/** 头像加载失败标记：true 时回退到默认图标 */
+const avatarLoadFailed = ref(false)
+
+/** 头像 img @error 回退：清空 avatarUrl 并切换到默认图标 */
+function handleAvatarError(): void {
+  avatarLoadFailed.value = true
+}
+
+/** 是否显示 img 头像（有 URL 且未加载失败） */
+const showAvatarImg = computed(
+  () => !!userStore.avatarUrl && !avatarLoadFailed.value,
+)
 
 /** 切换 Tab：路由跳转 */
 function handleTabChange(path: string): void {
@@ -76,7 +89,7 @@ async function handleLogout(): Promise<void> {
     >
       <div class="user-entry">
         <span class="user-avatar">
-          <img v-if="userStore.avatarUrl" :src="userStore.avatarUrl" alt="用户头像" />
+          <img v-if="showAvatarImg" :src="userStore.avatarUrl" alt="用户头像" @error="handleAvatarError" />
           <el-icon v-else :size="18"><UserFilled /></el-icon>
         </span>
         <span class="user-name" :title="displayName">{{ displayName }}</span>

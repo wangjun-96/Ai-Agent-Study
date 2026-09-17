@@ -44,6 +44,17 @@ class ResourceDao:
         )
         return self.db.scalars(stmt).first()
 
+    def get_by_id(self, resource_id: int) -> Resource | None:
+        """按主键查询单条资源，不存在返回 None。"""
+        return self.db.get(Resource, resource_id)
+
+    def list_by_ids(self, resource_ids: list[int]) -> list[Resource]:
+        """按 ID 列表批量查询资源，空列表返回空。"""
+        if not resource_ids:
+            return []
+        stmt = select(Resource).where(Resource.id.in_(resource_ids))
+        return list(self.db.scalars(stmt))
+
     def list_expired(self, now: datetime) -> list[Resource]:
         """查询 expire_time 已到期且非空的全部资源记录。"""
         stmt = (

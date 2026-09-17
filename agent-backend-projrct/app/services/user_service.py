@@ -57,7 +57,10 @@ class UserService:
         return self.user_dao.list_users()
 
     def update_user(self, user_id: int, user_in: UserUpdate) -> User:
-        """更新用户：仅更新非空字段，密码变更需重新哈希。"""
+        """更新用户：仅更新非空字段，密码变更需重新哈希。
+
+        字段不传或传空字符串均视为"不修改"，支持只改密码不改用户名等场景。
+        """
         existing = self.user_dao.get_user(user_id)
         if existing is None:
             raise BusinessException(
@@ -65,16 +68,16 @@ class UserService:
             )
 
         update_data: dict = {}
-        # 用户名变更需再次校验唯一性
-        if user_in.username is not None and user_in.username != existing.username:
+        # 用户名变更需再次校验唯一性（空字符串视为不修改）
+        if user_in.username and user_in.username != existing.username:
             if self.user_dao.find_by_username(user_in.username) is not None:
                 raise BusinessException(
                     ResponseCode.USER_ALREADY_EXISTS,
                     detail=f"username={user_in.username}",
                 )
             update_data["username"] = user_in.username
-        # 密码变更需重新哈希
-        if user_in.password is not None:
+        # 密码变更需重新哈希（空字符串视为不修改）
+        if user_in.password:
             update_data["password"] = hash_password(user_in.password)
 
         if update_data:

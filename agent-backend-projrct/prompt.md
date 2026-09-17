@@ -147,3 +147,46 @@ CREATE TABLE `resources` (
 7. 新增过期清理：每天03：00扫描expire_time,先删MioIO对象，再删元数据；
 8. 更新requirements.txt：添加 minio
 9. 代码简洁，指责单一、注释清晰、无冗余代码。
+
+
+# 请在现有 FastAPI 项目中实现并完善会话与聊天接口，严格遵循一下语义与约束：
+
+## 核心语义
+
+1. `ChatMessage.request_text/response_text` 是聊天正文主字段；
+2. `reqquest_segments/response_segments` 只存附件段（`file/image/audio`）;
+3. 用户提问可带附件；AI 回复可带文本或者附件（文本进入 `response_text`，附件进入 `response_segments`）。
+4. 聊天消息返回需包含`status`与`interview_id`,用于前端面试卡片逻辑；
+5. `interview`表包含`user_id`字段，获取面试记录需要根据`interview_id`+`user_id`进行查询。interview表新增user_id字段
+
+## 需要实现/确认的接口
+
+1. `GET/sessions?page=&page_size=`：会话列表分页（按当前用户）
+2. `POST/sessions`：创建会话主题（title+session_model）
+3. `PUT/sessions/{session_id}`：编辑会话标题
+4. `DELETE/sessions/{session_id}`：删除会话(级联删除)
+    - 删除 session
+    - 删除 session 下 `Chat_Message`
+    - 删除关联 `interview`
+    - 解析消息 segments 收集 `resource_id`
+    - 删除关联 `resources`中文件元信息与对象存储文件
+5. `GET/sessions/{session_id}/messages?page=&page_size=`：分页获取聊天信息
+    - 返回： `request_text/response_text`+`request_segments/response_segments`+`status/interview_id/created_at`
+6. `GET/interviews/{interview_id}`：按`interview_id`获取面试详情文本（含`qa_object`）
+
+# 为消息表添加字段
+
+ ## 用户消息 
+    - request_segments:Mapped[List[dict]]= mapped_column(JSON)
+ ## AI消息
+    - response_segments:Mapped[List[dict]]= mapped_column(JSON)
+## 面试记录id 
+    - interview_id:Mapped[int] = mapped_column(nullable=True)
+### response_segments示例
+    “response_segments”:[
+        {
+            "type":"image",
+           "url":"https://example.com/image.jpg",
+           "name":"image.jpg" 
+        },
+    ],"interview_id":123456

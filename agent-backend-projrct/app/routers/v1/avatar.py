@@ -11,9 +11,10 @@
 
 接口为**公开访问**（无 JWT 鉴权），因为 <img> 标签无法携带 Authorization 头。
 预签名 URL 有有效期（默认 2 小时），过期后浏览器再次请求本接口即可获取新 URL。
+用户未设置头像时，直接返回内置默认头像 SVG，前端 <img> 永远不会收到 404。
 """
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.core import BusinessException, settings
@@ -30,9 +31,18 @@ router = APIRouter(
     responses={
         404: {
             "model": ApiResponse,
-            "description": "用户不存在(40401) / 用户未设置头像(40402)",
+            "description": "用户不存在(40401)",
         },
     },
+)
+
+# 内置默认头像 SVG（灰色圆形 + 用户图标，Element Plus 风格）
+DEFAULT_AVATAR_SVG = (
+    b"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'>"
+    b"<rect width='40' height='40' rx='50%' fill='#c0c4cc'/>"
+    b"<circle cx='20' cy='16' r='6' fill='white'/>"
+    b"<path d='M10 34 Q10 24 20 24 Q30 24 30 34' fill='white'/>"
+    b"</svg>"
 )
 
 
@@ -45,33 +55,39 @@ router = APIRouter(
         "- 后端查询 users.avatar 存储路径（minio://...）；\n"
         "- 生成 MinIO 预签名下载 URL（有效期默认 2 小时）；\n"
         "- 返回 307 重定向，浏览器自动跟随下载图片；\n"
-        "- 用户不存在返回 404(40401)，未设置头像返回 404(40402)。"
+        "- 用户不存在返回 404(40401)；\n"
+        "- 用户未设置头像时直接返回内置默认头像 SVG。"
     ),
-    response_class=RedirectResponse,
 )
 def get_avatar(
     user_id: int,
     user_service: UserService = Depends(get_user_service),
     minio_storage: MinioStorage = Depends(get_minio_storage),
-) -> RedirectResponse:
-    """头像代理：查用户 → 解析存储路径 → 307 重定向到预签名 URL。"""
+) -> Response:
+    """头像代理：查用户 → 解析存储路径 → 307 重定向到预签名 URL。
+
+    用户未设置头像时，直接返回内置默认头像 SVG，前端 img 永远不会裂图。
+    """
     # 查询用户，不存在抛 40401
     user = user_service.get_user(user_id)
 
-    # 头像为空或格式非法，抛 40402
+    # 头像为空 → 直接返回默认头像 SVG
     if not user.avatar:
-        raise BusinessException(
-            ResponseCode.AVATAR_NOT_FOUND,
-            detail=f"user_id={user_id}, avatar is empty",
+        return Response(
+            content=DEFAULT_AVATAR_SVG,
+            media_type="image/svg+xml",
+            headers={"Cache-Control": "no-cache"},
         )
 
     url = minio_storage.presigned_url_from_path(
         user.avatar, settings.MINIO_PRESIGN_EXPIRY_SECONDS
     )
     if url is None:
-        raise BusinessException(
-            ResponseCode.AVATAR_NOT_FOUND,
-            detail=f"user_id={user_id}, invalid storage_path={user.avatar}",
+        # 存储路径非法也回退到默认头像
+        return Response(
+            content=DEFAULT_AVATAR_SVG,
+            media_type="image/svg+xml",
+            headers={"Cache-Control": "no-cache"},
         )
 
     # 307 保持 GET 方法语义，浏览器缓存可正常工作

@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
@@ -36,6 +36,19 @@ _test_engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,  # 内存数据库必须用静态连接池，所有 Session 共享同一连接
 )
+
+
+@event.listens_for(_test_engine, "connect")
+def _register_sqlite_compat_funcs(dbapi_conn, conn_record) -> None:
+    """注册 MySQL 函数的 SQLite 兼容实现，保证模型 server_default 在测试库可用。
+
+    - unix_timestamp()：sessions/chat_messages/interviews 的 create_at 默认值
+    """
+    import time as _time
+
+    dbapi_conn.create_function("unix_timestamp", 0, lambda: int(_time.time()))
+
+
 _TestSessionLocal = sessionmaker(
     bind=_test_engine,
     autoflush=False,

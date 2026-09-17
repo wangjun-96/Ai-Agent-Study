@@ -12,13 +12,19 @@ from sqlalchemy.orm import Session
 
 from app.core import BusinessException
 from app.core.jwt import decode_token
+from app.dao.interview_dao import InterviewDao
+from app.dao.message_dao import MessageDao
 from app.dao.resource_dao import ResourceDao
+from app.dao.session_dao import SessionDao
 from app.dao.user_dao import UserDao
 from app.db.database import get_db
 from app.db.models import User
 from app.enums.response_code import ResponseCode
 from app.enums.token_type import TokenType
 from app.integrations.minio_client import MinioStorage, get_minio_storage
+from app.services.interview_service import InterviewService
+from app.services.message_service import MessageService
+from app.services.session_service import SessionService
 from app.services.upload_service_minio import MinioUploadService
 from app.services.user_service import UserService
 
@@ -52,6 +58,51 @@ def get_upload_service_minio(
 ) -> MinioUploadService:
     """构造 MinIO 上传服务（当前运行逻辑），注入 DAO 与 MinIO 工具。"""
     return MinioUploadService(user_service, resource_dao, minio_storage)
+
+
+# ------------------------------------------------------------------
+# 会话 / 消息 / 面试 依赖
+# ------------------------------------------------------------------
+
+def get_session_dao(db: Session = Depends(get_db)) -> SessionDao:
+    """构造会话 DAO，注入当前请求的 Session。"""
+    return SessionDao(db)
+
+
+def get_message_dao(db: Session = Depends(get_db)) -> MessageDao:
+    """构造消息 DAO，注入当前请求的 Session。"""
+    return MessageDao(db)
+
+
+def get_interview_dao(db: Session = Depends(get_db)) -> InterviewDao:
+    """构造面试 DAO，注入当前请求的 Session。"""
+    return InterviewDao(db)
+
+
+def get_session_service(
+    session_dao: SessionDao = Depends(get_session_dao),
+    message_dao: MessageDao = Depends(get_message_dao),
+    resource_dao: ResourceDao = Depends(get_resource_dao),
+    minio_storage: MinioStorage = Depends(get_minio_storage),
+) -> SessionService:
+    """构造会话业务服务（含级联删除），注入 DAO 与 MinIO 工具。"""
+    return SessionService(session_dao, message_dao, resource_dao, minio_storage)
+
+
+def get_message_service(
+    session_dao: SessionDao = Depends(get_session_dao),
+    message_dao: MessageDao = Depends(get_message_dao),
+    interview_dao: InterviewDao = Depends(get_interview_dao),
+) -> MessageService:
+    """构造消息业务服务，注入会话/消息/面试 DAO。"""
+    return MessageService(session_dao, message_dao, interview_dao)
+
+
+def get_interview_service(
+    interview_dao: InterviewDao = Depends(get_interview_dao),
+) -> InterviewService:
+    """构造面试业务服务，注入面试 DAO。"""
+    return InterviewService(interview_dao)
 
 
 def get_current_user(

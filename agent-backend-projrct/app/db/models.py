@@ -163,6 +163,23 @@ class ChatMessage(Base):
     file_extracted_text: Mapped[str | None] = mapped_column(
         LargeText, nullable=True, comment="从文件中提取的完整文本（对话上下文用）"
     )
+    # 用户消息附件段：仅存 file/image/audio 附件，文本正文走 request_text
+    request_segments: Mapped[list[dict] | None] = mapped_column(
+        JSON, nullable=True, comment="用户消息附件段（file/image/audio）"
+    )
+    # AI 回复附件段：仅存 file/image/audio 附件，文本正文走 response_text
+    response_segments: Mapped[list[dict] | None] = mapped_column(
+        JSON, nullable=True, comment="AI回复附件段（file/image/audio）"
+    )
+    # 关联面试记录 ID：仅模拟面试入口消息/面试复盘消息有值，用于前端面试卡片逻辑
+    # use_alter=True：与 interviews.message_id 形成循环外键，延迟建表后通过 ALTER 添加约束
+    interview_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("interviews.id", use_alter=True),
+        nullable=True,
+        index=True,
+        comment="关联面试记录ID",
+    )
     # 创建时间：Unix 秒时间戳，默认 UNIX_TIMESTAMP()
     create_at: Mapped[int] = mapped_column(
         BigInteger,
@@ -184,6 +201,7 @@ class Interview(Base):
     - id                 ：自增主键
     - session_id         ：外键关联会话表 ID，同一会话/面试场景
     - message_id         ：外键关联消息表 ID，唯一，指向开启本次模拟面试的入口消息
+    - user_id            ：外键关联用户表 ID，面试归属用户，按 interview_id+user_id 查询
     - qa_object          ：一问一答 JSON 对象，字段约定：{id, question, answer, created_at}
     - interview_duration ：累计面试时长（秒），默认 0
     - status             ：面试状态（0=进行中，1=已完成，2=异常终止），默认 0，加索引
@@ -212,6 +230,14 @@ class Interview(Base):
         unique=True,
         nullable=False,
         comment="入口消息ID",
+    )
+    # 外键关联用户表 ID：面试归属用户，获取面试记录需 interview_id + user_id 联合查询
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+        comment="用户ID",
     )
     # 一问一答 JSON 对象，字段约定：{id, question, answer, created_at}
     qa_object: Mapped[dict] = mapped_column(

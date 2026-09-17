@@ -25,7 +25,7 @@ export const useUserStore = defineStore('user', () => {
   /** 当前登录用户信息（登录后通过 /api/v1/auth/me 拉取） */
   const userInfo = ref<UserInfo | null>(null)
 
-  /** 当前头像访问地址（后端 /uploads 路径，由 /api/v1/auth/me 或上传接口返回） */
+  /** 当前头像访问地址（通过后端代理接口加载，无头像时后端返回默认图） */
   const avatarUrl = ref<string>('')
 
   // ==================== 计算属性 ====================
@@ -49,8 +49,9 @@ export const useUserStore = defineStore('user', () => {
   async function fetchCurrentUser(): Promise<UserInfo> {
     const res = await getCurrentUser()
     userInfo.value = res.data
-    // 头像以服务端记录为准（图片上传成功后后端回写 avatar 字段）
-    avatarUrl.value = res.data.avatar ?? ''
+    // 头像统一走后端代理接口：/api/v1/avatar/{user_id}
+    // 后端查 MinIO 存储路径生成预签名 URL，无头像时返回默认图
+    avatarUrl.value = `/api/v1/avatar/${res.data.id}`
     return res.data
   }
 

@@ -39,6 +39,10 @@ class ResponseCode(IntEnum):
     USER_NOT_FOUND = 40401
     # 用户未设置头像或头像存储路径非法
     AVATAR_NOT_FOUND = 40402
+    # 会话不存在（含非当前用户的越权访问统一返回 404，避免被枚举）
+    SESSION_NOT_FOUND = 40403
+    # 面试记录不存在（含非当前用户的越权访问统一返回 404，避免被枚举）
+    INTERVIEW_NOT_FOUND = 40404
 
     # 限流相关 429xx（与 HTTP 429 Too Many Requests 对齐）
     RATE_LIMITED = 42901
@@ -65,6 +69,8 @@ CODE_MESSAGES: dict[ResponseCode, str] = {
     ResponseCode.RESOURCE_DUPLICATE: "文件已存在，请勿重复上传",
     ResponseCode.USER_NOT_FOUND: "用户不存在",
     ResponseCode.AVATAR_NOT_FOUND: "用户未设置头像",
+    ResponseCode.SESSION_NOT_FOUND: "会话不存在",
+    ResponseCode.INTERVIEW_NOT_FOUND: "面试记录不存在",
     ResponseCode.RATE_LIMITED: "请求过于频繁，请稍后再试",
     ResponseCode.SYSTEM_ERROR: "系统繁忙，请稍后再试",
     ResponseCode.HEALTH_CHECK_FAILED: "服务异常：数据库不可用",

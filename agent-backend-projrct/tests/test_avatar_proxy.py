@@ -49,8 +49,8 @@ class TestAvatarProxy:
         object_key = f"user_{user_id}/images/{file_hash}.png"
         assert object_key in location
 
-    def test_user_without_avatar_returns_40402(self, client, fake_minio):
-        """无头像用户：404(40402)。"""
+    def test_user_without_avatar_returns_default(self, client, fake_minio):
+        """无头像用户：直接返回内置默认头像 SVG（200），不返回 404。"""
         resp = client.post(
             "/api/v1/auth/register",
             data={"username": "noavatar", "password": "Goodpass1"},
@@ -59,8 +59,10 @@ class TestAvatarProxy:
         user_id = resp.json()["data"]["id"]
 
         avatar_resp = client.get(f"/api/v1/avatar/{user_id}")
-        assert avatar_resp.status_code == 404
-        assert avatar_resp.json()["code"] == 40402
+        assert avatar_resp.status_code == 200
+        assert avatar_resp.headers["content-type"] == "image/svg+xml"
+        # 响应体是 SVG 图片内容
+        assert b"<svg" in avatar_resp.content
 
     def test_nonexistent_user_returns_40401(self, client, fake_minio):
         """用户不存在：404(40401)。"""

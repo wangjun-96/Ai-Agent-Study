@@ -19,9 +19,13 @@ class UserCreate(UserBase):
 
 
 class UserUpdate(BaseModel):
-    """更新用户请求体，所有字段可选。"""
-    username: str | None = Field(None, min_length=2, max_length=50, description="用户名")
-    password: str | None = Field(None, min_length=6, max_length=128, description="新密码")
+    """更新用户请求体，所有字段可选。
+
+    字段不传或传空字符串均视为"不修改"，由 Service 层统一处理。
+    min_length 约束在 UserCreate 中强制，此处放宽以兼容部分更新场景。
+    """
+    username: str | None = Field(None, max_length=50, description="用户名（不传或空字符串表示不修改）")
+    password: str | None = Field(None, max_length=128, description="新密码（不传或空字符串表示不修改）")
 
 
 class UserResponse(BaseModel):
