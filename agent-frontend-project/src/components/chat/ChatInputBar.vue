@@ -36,6 +36,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   (e: 'send', content: string): void
+  (e: 'action', key: string): void
 }>()
 
 /** 功能按钮图标名 -> 图标组件映射（漏配时回退到附件图标） */
@@ -63,8 +64,9 @@ function handleSend(): void {
 }
 
 /** 预留功能按钮统一提示 */
-function handleReserved(featureName: string): void {
-  ElMessage.info(`${featureName}功能开发中`)
+function handleReserved(key: string, label: string): void {
+  emit('action', key)
+  ElMessage.info(`${label}功能开发中`)
 }
 </script>
 
@@ -91,7 +93,7 @@ function handleReserved(featureName: string): void {
             text
             size="small"
             class="feature-btn"
-            @click="handleReserved(action.label)"
+            @click="handleReserved(action.key, action.label)"
           >
             <el-icon :size="15"><component :is="ACTION_ICONS[action.icon] ?? Paperclip" /></el-icon>
             {{ action.label }}

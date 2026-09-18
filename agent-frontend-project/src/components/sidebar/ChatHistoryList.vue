@@ -36,20 +36,20 @@ const SESSION_ICONS: Record<string, Component> = {
 interface Props {
   /** 会话列表 */
   list: ChatSession[]
-  /** 当前激活的会话 ID */
-  activeId: string
+  /** 当前激活的会话 ID（支持 number 或 string） */
+  activeId: number | string
 }
 
 defineProps<Props>()
 
 const emit = defineEmits<{
-  (e: 'select', id: string): void
-  (e: 'rename', id: string, title: string): void
-  (e: 'delete', id: string): void
+  (e: 'select', id: number | string): void
+  (e: 'rename', id: number | string, title: string): void
+  (e: 'delete', id: number | string): void
 }>()
 
-/** 当前编辑中的会话 ID（空串表示未处于编辑态） */
-const editingId = ref('')
+/** 当前编辑中的会话 ID（空字符串表示未处于编辑态） */
+const editingId = ref<number | string>('')
 /** 编辑中的会话标题草稿 */
 const editingTitle = ref('')
 
@@ -59,7 +59,7 @@ function startEdit(session: ChatSession): void {
   editingTitle.value = session.title
 }
 
-/** 提交重命名：标题非空才生效，Esc 已在取消分支处理 */
+/** 提交重命名：标题非空才生效 */
 function confirmEdit(): void {
   const title = editingTitle.value.trim()
   if (editingId.value && title) {
@@ -73,9 +73,14 @@ function cancelEdit(): void {
   editingId.value = ''
 }
 
+/** 判断 ID 是否相等（兼容 number 和 string） */
+function isSameId(id1: number | string, id2: number | string): boolean {
+  return String(id1) === String(id2)
+}
+
 /** 点击会话项：若正处于重命名编辑态，则先退出编辑再忽略本次选择 */
 function handleItemClick(session: ChatSession): void {
-  if (editingId.value) {
+  if (editingId.value !== '' && isSameId(editingId.value, session.id)) {
     cancelEdit()
     return
   }
@@ -105,16 +110,16 @@ function handleDelete(session: ChatSession): void {
       v-for="session in list"
       :key="session.id"
       class="history-item"
-      :class="{ 'is-active': session.id === activeId }"
+      :class="{ 'is-active': isSameId(session.id, activeId) }"
       @click="handleItemClick(session)"
     >
       <!-- 会话图标 -->
       <el-icon :size="18" :color="session.color">
-        <component :is="SESSION_ICONS[session.icon] ?? Monitor" />
+        <component :is="SESSION_ICONS[session.icon || 'Monitor'] ?? Monitor" />
       </el-icon>
 
       <!-- 标题 / 重命名输入框 -->
-      <template v-if="session.id === editingId">
+      <template v-if="isSameId(session.id, editingId)">
         <el-input
           v-model="editingTitle"
           class="rename-input"
@@ -129,7 +134,7 @@ function handleDelete(session: ChatSession): void {
       <span v-else class="item-title" :title="session.title">{{ session.title }}</span>
 
       <!-- 悬停操作：重命名 / 删除 -->
-      <span v-if="session.id !== editingId" class="item-actions">
+      <span v-if="!isSameId(session.id, editingId)" class="item-actions">
         <el-icon
           class="action-icon"
           :size="15"

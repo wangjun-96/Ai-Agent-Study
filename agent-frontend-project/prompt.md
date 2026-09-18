@@ -34,3 +34,20 @@
 2. 点击注册时，先用文本信息创建账号，成功后 自动登录 以获取token。
 3. 登录成功后，再发起 已认证的头像上传请求。
 4. “使用 Pinia 全局管理用户信息
+
+# 实现聊天页面会话管理，对话管理数据回显：
+
+- 会话管理：支持会话列表分页（`GET/sessions`）、新建（`POST/sessions`）、编辑标题（`PUT/sessions/{session_id}`）、删除（`DELETE/sessions/{id}`，操作后刷新并切换会话）。
+- 聊天信息：按会话ID分页获取消息（`GET/sessions/{session_id}/messages`），正文渲染`request_text/response_text`,附件渲染`request_segments/response_segments`（只含`file/image/audio`字段容错，结构为`type/name/url/resource_id`）。
+- 消息区：正文与附件分区显示，附件用独立组件（如`MsgFile.vue`）,图片失败显示占位图，音频失败有提示。
+- 消息加载：上拉分页（距离顶部100px触发），loading锁防重入，增量追加，按`created_at`排序。
+- 面试卡片：`status=1` 时显示卡片，点击调用`GET/interviews/{interview_id}`,弹窗展示`qa_object`。
+
+全部需对接的接口如下：
+
+- `GET/sessions`
+- `GET/sessions/{session_id}/messages`
+- `GET/interviews/{interview_id}`
+- `POST/sessions`
+- `PUT/sessions/{session_id}`
+- `DELETE/sessions/{id}`

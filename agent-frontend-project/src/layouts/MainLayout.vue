@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppSidebar from '@/components/sidebar/AppSidebar.vue'
-import { MOCK_MESSAGES, MOCK_NOTES, MOCK_SESSIONS } from '@/config/constant'
 import { useChatStore } from '@/stores/chat'
 import { useNoteStore } from '@/stores/note'
 import { useUserStore } from '@/stores/user'
@@ -13,13 +12,6 @@ const chatStore = useChatStore()
 const noteStore = useNoteStore()
 const userStore = useUserStore()
 
-// 布局挂载时初始化默认会话的完整对话并激活（仅首次生效）
-chatStore.initSession(MOCK_SESSIONS[0].id, MOCK_MESSAGES)
-chatStore.loadSession(MOCK_SESSIONS[0].id)
-
-// 默认激活第一篇笔记（内容懒初始化）
-noteStore.selectNote(MOCK_NOTES[0].id)
-
 // 已登录（含刷新页面从 localStorage 恢复登录态）时拉取当前用户信息；
 // 令牌失效由请求拦截器统一静默刷新 / 跳转登录页，此处无需额外处理
 if (userStore.isLoggedIn) {
@@ -28,6 +20,56 @@ if (userStore.isLoggedIn) {
 
 /** 当前路由的侧边栏类型：chat 聊天会话 / note 笔记 */
 const sidebarType = computed(() => route.meta.sidebar ?? 'chat')
+
+/** 根据会话模式获取侧边栏配置 */
+const sidebarConfig = computed(() => {
+  if (sidebarType.value === 'chat') {
+    return {
+      createLabel: '新建会话',
+      sectionLabel: '历史会话',
+    }
+  }
+  return {
+    createLabel: '新建笔记',
+    sectionLabel: '我的笔记',
+  }
+})
+
+/** 创建新会话/笔记 */
+async function handleCreate() {
+  if (sidebarType.value === 'chat') {
+    await chatStore.createSession('新会话', 0)
+  } else {
+    noteStore.createNote()
+  }
+}
+
+/** 选择会话/笔记 */
+async function handleSelect(id: string | number) {
+  if (sidebarType.value === 'chat') {
+    await chatStore.loadSession(typeof id === 'string' ? Number(id) : id)
+  } else {
+    noteStore.selectNote(String(id))
+  }
+}
+
+/** 重命名会话/笔记 */
+async function handleRename(id: string | number, title: string) {
+  if (sidebarType.value === 'chat') {
+    await chatStore.renameSession(typeof id === 'string' ? Number(id) : id, title)
+  } else {
+    noteStore.renameNote(String(id), title)
+  }
+}
+
+/** 删除会话/笔记 */
+async function handleDelete(id: string | number) {
+  if (sidebarType.value === 'chat') {
+    await chatStore.deleteSession(typeof id === 'string' ? Number(id) : id)
+  } else {
+    noteStore.deleteNote(String(id))
+  }
+}
 </script>
 
 <template>
@@ -41,13 +83,13 @@ const sidebarType = computed(() => route.meta.sidebar ?? 'chat')
       <AppSidebar
         v-if="sidebarType === 'chat'"
         :list="chatStore.sessions"
-        :active-id="chatStore.activeSessionId"
-        create-label="新建会话"
-        section-label="历史会话"
-        @create="chatStore.createSession"
-        @select="chatStore.loadSession"
-        @rename="chatStore.renameSession"
-        @delete="chatStore.deleteSession"
+        :active-id="String(chatStore.activeSessionId)"
+        :create-label="sidebarConfig.createLabel"
+        :section-label="sidebarConfig.sectionLabel"
+        @create="handleCreate"
+        @select="handleSelect"
+        @rename="handleRename"
+        @delete="handleDelete"
       />
 
       <!-- 笔记侧边栏 -->
@@ -55,12 +97,12 @@ const sidebarType = computed(() => route.meta.sidebar ?? 'chat')
         v-else
         :list="noteStore.notes"
         :active-id="noteStore.activeNoteId"
-        create-label="新建笔记"
-        section-label="我的笔记"
-        @create="noteStore.createNote"
-        @select="noteStore.selectNote"
-        @rename="noteStore.renameNote"
-        @delete="noteStore.deleteNote"
+        :create-label="sidebarConfig.createLabel"
+        :section-label="sidebarConfig.sectionLabel"
+        @create="handleCreate"
+        @select="handleSelect"
+        @rename="handleRename"
+        @delete="handleDelete"
       />
 
       <main class="layout-content">

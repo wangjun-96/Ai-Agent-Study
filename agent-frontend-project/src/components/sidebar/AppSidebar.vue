@@ -10,8 +10,8 @@ import ChatHistoryList from './ChatHistoryList.vue'
 interface Props {
   /** 列表数据 */
   list: ChatSession[]
-  /** 当前激活项 ID */
-  activeId: string
+  /** 当前激活项 ID（支持 number 或 string） */
+  activeId: number | string
   /** 新建按钮文案 */
   createLabel?: string
   /** 列表标题文案 */
@@ -25,9 +25,9 @@ withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   (e: 'create'): void
-  (e: 'select', id: string): void
-  (e: 'rename', id: string, title: string): void
-  (e: 'delete', id: string): void
+  (e: 'select', id: number | string): void
+  (e: 'rename', id: number | string, title: string): void
+  (e: 'delete', id: number | string): void
 }>()
 </script>
 

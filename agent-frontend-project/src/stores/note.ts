@@ -49,7 +49,7 @@ export const useNoteStore = defineStore('note', () => {
       color: '#fbc531',
     }
     notes.value.unshift(newNote)
-    selectNote(newNote.id)
+    selectNote(String(newNote.id))
   }
 
   /** 重命名笔记 */
@@ -75,14 +75,15 @@ export const useNoteStore = defineStore('note', () => {
   }
 
   /** 删除笔记（移除列表项并清理内容缓存），若删除当前笔记则自动切换到第一个 */
-  function deleteNote(id: string): void {
-    delete contents[id]
-    notes.value = notes.value.filter((item) => item.id !== id)
+  function deleteNote(id: string | number): void {
+    const idStr = String(id)
+    delete contents[idStr]
+    notes.value = notes.value.filter((item) => String(item.id) !== idStr)
 
-    if (id === activeNoteId.value) {
+    if (String(activeNoteId.value) === idStr) {
       const next = notes.value[0]
       if (next) {
-        selectNote(next.id)
+        selectNote(String(next.id))
       } else {
         activeNoteId.value = ''
       }
