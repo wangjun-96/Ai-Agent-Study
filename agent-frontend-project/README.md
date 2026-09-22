@@ -1,8 +1,6 @@
-# 学面通AI（agent-frontend-project）
+# 学面通AI · 前端（agent-frontend-project）
 
-基于 **Vue 3 + TypeScript + Vite** 构建的 AI 面试模拟与学习辅助前端应用。应用围绕「面试练习 + 学习问答 + 笔记沉淀」三个场景组织，当前包含三大业务模块：**面试间**、**学习室**、**笔记本**，并已接入后端完成**用户注册、登录鉴权**闭环。
-
-> 说明：用户认证（注册 / 登录 / 双令牌刷新 / 退出）已对接真实后端接口；会话、笔记等业务数据仍使用本地 Mock，AI 回复为前端定时模拟（详见「数据与接口现状」）。
+基于 **Vue 3 + TypeScript + Vite** 构建的 AI 面试模拟与学习辅助前端应用。应用围绕「面试练习 + 学习问答 + 笔记沉淀」三个场景组织，已完成**用户注册登录鉴权闭环**与**会话/消息历史后端对接**，AI 实时对话功能接入中。
 
 ---
 
@@ -97,13 +95,15 @@ agent-frontend-project/
 │   └── frontend-coding-standards.md  # 前端编码规范（提交前必读）
 ├── src/
 │   ├── api/                        # 接口请求层（按业务模块拆分）
-│   │   └── auth.ts                 # 认证与文件上传接口：注册 / 登录 / 刷新令牌 / 当前用户 / 通用文件上传
+│   │   ├── auth.ts                 # 认证与文件上传：注册/登录/刷新令牌/当前用户/通用上传
+│   │   ├── session.ts              # 会话管理：列表分页/创建/编辑/删除
+│   │   └── message.ts              # 消息管理：按会话分页获取聊天消息
 │   ├── components/                # 通用 / 业务组件
-│   │   ├── chat/                  # 聊天相关：聊天室、输入区、消息列表、气泡、头像
+│   │   ├── chat/                  # 聊天相关：聊天室、输入区、消息列表、气泡、头像、用户消息卡片
 │   │   ├── common/                # 通用基础组件（TabSwitch）
 │   │   ├── layout/                # 布局组件（AppHeader 顶部导航 + 用户菜单）
 │   │   ├── note/                  # 笔记组件（NoteEditorCard 富文本卡片）
-│   │   └── sidebar/               # 侧边栏（AppSidebar 容器 + ChatHistoryList 列表）
+│   │   └── sidebar/               # 侧边栏（AppSidebar 容器 + ChatHistoryList 历史会话列表）
 │   ├── config/
 │   │   └── constant.ts            # 全局常量：Tab/功能按钮配置、登录路径、招呼语、Mock 数据
 │   ├── layouts/
@@ -111,9 +111,9 @@ agent-frontend-project/
 │   ├── router/
 │   │   └── index.ts               # 集中路由配置 + 登录守卫 + 全局标题
 │   ├── stores/
-│   │   ├── chat.ts                # 聊天状态（会话列表、消息缓存、模拟回复）
-│   │   ├── note.ts                # 笔记状态（笔记列表、富文本内容缓存）
-│   │   └── user.ts                # 用户状态（双令牌、当前用户、登录/注册/登出）
+│   │   ├── chat.ts                # 聊天状态（会话列表/消息缓存分页/AI回复/发送处理器注册）
+│   │   ├── note.ts                # 笔记状态（笔记列表/富文本内容缓存）
+│   │   └── user.ts                # 用户状态（双令牌/当前用户/登录/注册/登出）
 │   ├── styles/
 │   │   ├── index.scss             # 全局基础样式与滚动条美化
 │   │   └── variables.scss         # 主题色、布局尺寸、圆角等 SCSS 变量
@@ -149,13 +149,14 @@ agent-frontend-project/
 ### 1. 面试间 `/interview`（默认页）
 
 - 根路径 `/` 通过 `DEFAULT_TAB_PATH` 重定向至此。
-- 页面容器 `views/interview/index.vue` 仅负责装配：复用 `ChatRoom` 组件，传入面试场景占位文案「输入你的回答...」与 `INTERVIEW_INPUT_ACTIONS` 按钮配置。
-- 进入会话时 AI 自动发送招呼语；发送消息后模拟 600ms 异步回复，回复期间输入区禁用。
+- 页面容器 `views/interview/index.vue` 仅负责装配：复用 `ChatRoom` 组件，挂载时调用 `chatStore.fetchSessions({ session_model: 1 })` 拉取面试会话列表。
+- `ChatRoom` 的 `messages` / `loading-more` / `has-more` / `disabled` 等 props 均与 `useChatStore` 双向绑定；`@send` 事件触发 `chatStore.sendMessage`，AI 回复由注册的 handler 处理（当前为前端模拟）。
+- 输入区预置「上传文件 / 简历优化 / 模拟面试 / 面试复盘 / 知识精讲 / 语音输入」功能入口。
 
 ### 2. 学习室 `/study`
 
 - 与面试间共用 `ChatRoom`，占位文案为「输入你的问题...」，按钮配置为 `STUDY_INPUT_ACTIONS`。
-- 两个聊天页面共享同一个 `useChatStore`，会话与消息缓存互通。
+- 两个聊天页面共享同一个 `useChatStore`，切换模块时 `fetchSessions` 按 `session_model` 过滤，不会互相覆盖。
 
 ### 3. 笔记本 `/note`
 
@@ -173,7 +174,7 @@ agent-frontend-project/
 - 登录页 `views/login/index.vue`（路由 `/login`）：登录与注册同页 Tab 切换，共用一套 `el-form`；用户名、密码规则与后端约束保持一致（长度区间、密码须字母 + 数字组合且不能包含用户名）。
 - 表单设置 `validate-on-rule-change=false`，模式切换不触发校验，必填错误仅在字段失焦或点击提交时出现。
 - 注册成功后使用同一凭证自动登录，并回跳登录前被拦截的目标地址（`?redirect=`）。
-- 头部右侧为「头像 + 用户名 + 下拉箭头」整体入口，点击弹出 `el-dropdown`：`个人信息`（功能预留，点击给出开发中提示）、`退出登录`（`ElMessageBox` 二次确认后清理令牌并跳转登录页）。
+- 头部右侧为「头像 + 用户名 + 下拉箭头」整体入口，点击弹出 `el-dropdown`：头像走后端 `/api/v1/avatar/{user_id}` 代理接口渲染；下拉菜单含「个人信息」（功能预留，点击给出开发中提示）与「退出登录」（二次确认后清理令牌并跳转登录页）。
 
 ---
 
@@ -219,15 +220,23 @@ agent-frontend-project/
 
 ### 数据与接口现状
 
-- **用户认证已对接真实后端**：注册、登录、令牌刷新、`/api/v1/auth/me` 均通过 `src/api/auth.ts` + `src/utils/request.ts` 调用，双令牌持久化在 localStorage。
-- **业务数据仍为 Mock**：会话、笔记、消息等数据仍是 `src/config/constant.ts` 中的 Mock 数据，仅保存在 Pinia 内存中，刷新页面后重置；AI 回复由 `stores/chat.ts` 中的 `window.setTimeout` 模拟（代码内已标注「后续替换为真实接口调用」）。
-- **MinIO 对象存储改造（后端已就绪，前端待接入）**：后端已接入 MinIO 对象存储，注册接口 `POST /api/v1/auth/register` 的头像保存路径切换到 MinIO，返回的 `avatar` 字段为存储路径（格式形如 `minio://ai-resource/user_{id}/images/{hash}.png`），并非浏览器可直接访问的 URL；新增以下后端接口：
-  - `POST /api/v1/files/upload`：通用文件上传（multipart，JWT 鉴权，支持 `storage_scene` 与 `upload_purpose` 参数），前端 `src/api/auth.ts` 的 `uploadFile` 已对接；
-  - `GET /api/v1/avatar/{user_id}`：头像公开代理接口（无鉴权），后端 307 重定向到 MinIO 预签名 URL，供 `<img src="/api/v1/avatar/{user_id}">` 直接渲染。
-- **头像显示方案**：由于 `avatar` 字段为 MinIO 存储路径而非浏览器可访问 URL，头像展示需改走代理接口 `/api/v1/avatar/{user_id}` 作为 `img src`。当前 `src/stores/user.ts` 的 `avatarUrl` 仍直接取自 `/api/v1/auth/me` 返回的 `avatar` 字段、`src/components/layout/AppHeader.vue` 直接以 `avatarUrl` 作为 `img src`，**尚未切换到代理接口**；后端代理接口已就绪，前端后续接入时仅需将 `img src` 替换为 `/api/v1/avatar/${user_id}` 即可（开发环境经 Vite `/api` 代理透传，无需额外配置）。
-- 业务接口接入步骤（基础设施已就绪，无需再安装 axios）：
-  1. 按业务模块在 `src/api/` 新增接口文件，入参 / 出参补充完整 interface，统一经 `src/utils/request.ts` 发起；
-  2. 将 `sendMessage` 中的模拟逻辑替换为真实接口调用，并移除 `constant.ts` 中对应的 Mock 数据。
+#### 已对接真实后端（生产可用）
+
+- **用户认证**：`src/api/auth.ts` 提供注册、登录、令牌刷新、`/api/v1/auth/me` 接口调用，双令牌持久化在 localStorage。
+- **会话管理**：`src/api/session.ts` 提供会话列表、新建、编辑、删除，与后端 `POST/GET/PUT/DELETE /api/v1/sessions/` 对应，数据保存在 Pinia `useChatStore`，刷新页面需重新拉取。
+- **消息历史**：`src/api/message.ts` 提供按会话分页获取聊天消息，与后端 `GET /api/v1/sessions/{id}/messages` 对应。
+
+#### 待接入（开发中）
+
+- **AI 实时对话**：发送消息后 AI 回复仍为前端 `setTimeout` 模拟，尚未接入后端 AI 接口；`src/stores/chat.ts` 中 `registerSendHandler` / `sendMessage` 架构已预留，替换模拟逻辑即可接入真实服务。
+- **面试详情查询**：`src/api/interview.ts`（待实现），接入后端 `GET /api/v1/interviews/{interview_id}` 后可查看面试完整问答记录。
+- **文件上传**：`src/api/auth.ts` 的 `uploadFile` 已就绪，UI 入口（输入区「上传文件」按钮）点击暂提示功能开发中，待完整链路打通。
+- **笔记本**：`useNoteStore` 当前使用本地 Mock 数据（`MOCK_NOTES`），待接入后端会话笔记相关接口。
+
+#### 头像展示
+
+- 用户头像走后端公开代理接口 `/api/v1/avatar/{user_id}`（307 重定向到 MinIO 预签名 URL），前端直接作为 `<img src>` 使用，开发环境经 Vite `/api` 代理透传。
+- MinIO 服务不可达时，后端代理接口对有头像用户返回 500，需确保 MinIO 正常运行。
 
 ### Vite 工程配置
 

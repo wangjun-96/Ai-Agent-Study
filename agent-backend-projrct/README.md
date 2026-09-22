@@ -1,6 +1,6 @@
-# 用户管理 API
+# 学面通 AI · 后端（agent-backend-projrct）
 
-基于 **FastAPI + SQLAlchemy 2.0 + MySQL + MinIO** 的用户增删改查与文件上传示例项目，采用四层架构组织代码，密码使用 passlib[bcrypt] 哈希存储，文件资源通过 **MinIO 对象存储** 与 MySQL 元数据解耦管理，环境变量按开发/生产分层管理，日志统一使用 Loguru 记录。
+基于 **FastAPI + SQLAlchemy 2.0 + MySQL + MinIO** 构建的 AI 面试模拟与学习后端服务，采用四层架构组织代码，提供用户认证、会话管理、聊天消息存储、面试记录、MinIO 文件存储与预签名访问能力。
 
 ## 一、技术栈
 
@@ -49,8 +49,8 @@ agent-backend-projrct/
 │   ├── test_smoke.py               # 冒烟测试：健康检查、CRUD、异常分支、注册/限流
 │   ├── test_auth_login.py          # 登录/JWT 鉴权链路测试
 │   ├── test_rate_limit.py          # 固定窗口限流器单元测试
-│   ├── test_upload_minio.py        # MinIO 上传链路冒烟测试（9 用例 + 注册头像 2 用例）
-│   └── test_avatar_proxy.py        # 头像公开代理接口测试（4 用例）
+│   ├── test_upload_minio.py        # MinIO 上传链路冒烟测试
+│   └── test_avatar_proxy.py        # 头像公开代理接口测试
 └── app/
     ├── main.py                     # FastAPI 入口：日志初始化、异常处理器、路由聚合、lifespan 定时清理
     ├── security.py                 # 安全工具：密码 bcrypt 哈希 + 弱密码强度策略
@@ -58,6 +58,7 @@ agent-backend-projrct/
     │   ├── config.py               # 统一配置层（环境分层 + pydantic-settings + MinIO 配置）
     │   ├── exceptions.py           # 自定义业务/系统异常
     │   ├── responses.py            # 统一响应模型（code/message/data/detail）
+    │   ├── pagination.py          # 分页参数与结果模型
     │   ├── jwt.py                  # JWT 签发/校验（Access/Refresh 双令牌）
     │   ├── rate_limit.py           # 固定窗口限流（注册接口 IP 维度）
     │   ├── logger.py               # Loguru 日志配置（开发双写 / 生产仅文件）
@@ -76,22 +77,31 @@ agent-backend-projrct/
     ├── schemas/                    # 校验层：Pydantic v2 请求/响应模型
     │   ├── user.py                 # 用户模型
     │   ├── auth.py                 # 注册/登录/刷新/令牌模型
-    │   └── file.py                 # 文件上传响应模型：FileUploadResult / ResourceUploadResult
+    │   ├── file.py                 # 文件上传响应模型：FileUploadResult / ResourceUploadResult
+    │   ├── session.py              # 会话创建/更新/响应模型
+    │   ├── message.py              # 消息响应模型（含 Segment 子模型）
+    │   └── interview.py            # 面试记录响应模型
     ├── db/                         # 数据库层
     │   ├── base.py                 # SQLAlchemy Declarative Base
     │   ├── database.py             # Engine / Session 工厂 / get_db 依赖
-    │   └── models.py               # ORM 模型：User / Resource / Session / ChatMessage / Interview
-    ├── dao/
-    │   ├── user_dao.py             # 用户表数据访问层
-    │   └── resource_dao.py         # 资源元数据表 DAO：insert/get_by_hash/list_expired/delete
+    │   └── models.py               # ORM 模型：User / Session / ChatMessage / Interview / Resource
+    ├── dao/                        # 数据访问层
+    │   ├── user_dao.py             # 用户表：insert/get/update/delete/find_by_username
+    │   ├── resource_dao.py          # 资源元数据：insert/get_by_hash/list_expired/delete
+    │   ├── session_dao.py           # 会话表：insert/get/list/update/delete
+    │   ├── message_dao.py           # 消息表：insert/get_by_session/list_paginate
+    │   └── interview_dao.py        # 面试记录：insert/get_by_id/get_by_message_id
     ├── integrations/               # 第三方集成层：封装 SDK，业务层只调用工具方法
     │   └── minio_client.py         # MinioStorage 工具类：上传/删除/预签名URL/桶管理/path编解码
     ├── services/                   # 业务层：业务逻辑 + 密码哈希
-    │   ├── user_service.py         # 用户业务（含头像回写 update_avatar）
-    │   ├── auth_service.py         # 注册/登录认证/令牌刷新（注册头像走 MinIO 两阶段）
-    │   ├── upload_service_minio.py # MinIO 上传业务服务（当前运行逻辑）：去重/场景分流/头像回写
+    │   ├── user_service.py          # 用户业务（含头像回写）
+    │   ├── auth_service.py          # 注册/登录认证/令牌刷新（注册头像走 MinIO 两阶段）
+    │   ├── session_service.py       # 会话业务：创建/列表/编辑/级联删除
+    │   ├── message_service.py       # 消息业务：分页查询/关联面试状态注入
+    │   ├── interview_service.py     # 面试记录业务：按 ID+用户查询详情
+    │   ├── upload_service_minio.py  # MinIO 上传业务：去重/场景分流/头像回写
     │   ├── resource_cleanup_service.py # 过期资源清理：先删 MinIO 对象再删元数据
-    │   └── file_service.py         # 旧本地上传逻辑（教学保留，不参与运行）
+    │   └── file_service.py          # 旧本地上传逻辑（教学保留，不参与运行）
     └── routers/                    # 路由层
         ├── health.py               # 健康检查路由（/health，不挂鉴权）
         └── v1/
@@ -99,18 +109,20 @@ agent-backend-projrct/
             ├── deps.py             # 公共依赖项：JWT 鉴权 get_current_user / Service 工厂等
             ├── auth.py             # 认证路由（注册/登录/刷新/当前用户）
             ├── users.py            # 用户增删改查路由（统一 JWT 登录鉴权）
-            ├── files.py            # 文件上传路由（/api/v1/files/upload，统一 JWT 鉴权）
-            └── avatar.py           # 头像公开代理路由（/api/v1/avatar/{user_id}，307 重定向，无鉴权）
+            ├── sessions.py          # 会话路由：列表/创建/编辑/删除/消息列表（统一 JWT 鉴权）
+            ├── interviews.py       # 面试详情路由：按 ID 获取 qa_object（统一 JWT 鉴权）
+            ├── files.py            # 文件上传路由（统一 JWT 鉴权）
+            └── avatar.py           # 头像公开代理路由（无鉴权）
 ```
 
 ### 分层职责
 
-- **路由层（routers）**：仅做参数接收、路由分发、异常捕获，不堆砌核心业务逻辑。v1 路由在 `routers/v1/api.py` 统一聚合，`main.py` 只挂载 `health_router` + `v1_router`，新增业务模块只需在 `api.py` 追加 `include_router`。
+- **路由层（routers）**：仅做参数接收、路由分发，不堆砌核心业务逻辑。v1 路由在 `routers/v1/api.py` 统一聚合，`main.py` 只挂载 `health_router` + `v1_router`，新增业务模块只需在 `api.py` 追加 `include_router`。
 - **校验层（schemas）**：Pydantic v2 定义请求/响应模型，路径/查询/请求体全部结构化。
 - **业务层（services）**：处理业务逻辑，密码哈希在此层完成，只调用 DAO，不直接操作 Session；MinIO 上传/去重/场景分流/头像回写/过期清理均在此层。
 - **数据访问层（dao）**：数据库操作全部封装在此，禁止裸写原生 SQL 拼接；写操作统一加事务，失败自动回滚。
 - **第三方集成层（integrations）**：封装 MinIO 等 SDK，业务层只调用工具方法，不裸写第三方代码。
-- **横切基础设施（core / enums / db）**：统一配置、统一响应、全局异常处理、日志、ORM 建模、定时调度、业务状态码与资源/会话/面试等枚举，供各层复用。
+- **横切基础设施（core / enums / db）**：统一配置、统一响应、分页模型、全局异常处理、日志、ORM 建模、定时调度、业务状态码与资源/会话/面试等枚举，供各层复用。
 
 ## 三、安装与运行
 
@@ -137,7 +149,7 @@ cmd：
 .\.venv\Scripts\activate.bat
 ```
 
-激活成功后，命令行提示符前会出现 `(.venv)` 前缀。若 PowerShell 提示“禁止运行脚本”，先执行一次：
+激活成功后，命令行提示符前会出现 `(.venv)` 前缀。若 PowerShell 提示"禁止运行脚本"，先执行一次：
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
@@ -169,13 +181,14 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 > `.venv\Scripts\python.exe -m pip install -r requirements.txt`
 > `.venv\Scripts\python.exe -m uvicorn app.main:app --reload`
 
-### 虚拟环境注意事项
+### 依赖服务说明
 
-- **不要直接重命名或移动 `.venv` 目录**：其内部的 `pip.exe` 启动器和激活脚本写死了创建时的绝对路径，改名/移动后会报
-  `Fatal error in launcher: Unable to create process ...`。如需迁移，请删除后在新位置重新创建：
-  `Remove-Item -Recurse -Force .venv; python -m venv .venv`。
-- 安装包优先使用 `python -m pip install ...` 而非裸 `pip`，避免多个 Python 环境时路径串用。
-- `.venv` 为本地环境目录，已在 `.gitignore` 中忽略，不会提交到版本库。
+后端依赖以下外部服务，启动前需确保均已就绪：
+
+| 服务 | 端口 | 说明 |
+| --- | --- | --- |
+| MySQL | 3306 | 数据库，需提前创建 `agent_project_database` 数据库 |
+| MinIO | 9000（API）/ 9001（Console） | 对象存储，需预先创建 `ai-resource` 桶 |
 
 启动后访问：
 
@@ -267,19 +280,24 @@ logger.error("系统异常：{}", exc)
 | GET | `/openapi.json` | OpenAPI 元数据 | 否 | 200 |
 | POST | `/api/v1/auth/register` | 用户注册（弱密码校验 + bcrypt 哈希 + IP 限流 5/min，可选头像走 MinIO 两阶段上传） | 否 | 201 |
 | POST | `/api/v1/auth/login` | 登录，返回 Access/Refresh 双令牌 | 否 | 200 |
-| POST | `/api/v1/auth/refresh` | 刷新令牌过期后，用 Refresh Token 换新 Access Token | 否（凭刷新令牌） | 200 |
+| POST | `/api/v1/auth/refresh` | 用 Refresh Token 换新 Access Token | 否（凭刷新令牌） | 200 |
 | GET | `/api/v1/auth/me` | 获取当前登录用户信息 | 是（JWT） | 200 |
 | POST | `/api/v1/users/` | 创建用户 | 是（JWT） | 201 |
 | GET | `/api/v1/users/` | 查询用户列表 | 是（JWT） | 200 |
 | GET | `/api/v1/users/{user_id}` | 查询单个用户 | 是（JWT） | 200 |
 | PUT | `/api/v1/users/{user_id}` | 更新用户 | 是（JWT） | 200 |
 | DELETE | `/api/v1/users/{user_id}` | 删除用户 | 是（JWT） | 200 |
-| POST | `/api/v1/files/upload` | 通用文件上传（multipart，MinIO 存原文件 + MySQL 存元数据，storage_scene + upload_purpose 入参） | 是（JWT） | 200 |
-| GET | `/api/v1/avatar/{user_id}` | 头像公开代理（307 重定向到 MinIO 预签名 URL，供 `<img>` 标签直接访问） | 否 | 307 |
+| POST | `/api/v1/sessions/` | 创建会话（title + session_model） | 是（JWT） | 201 |
+| GET | `/api/v1/sessions/` | 会话列表分页，可按 session_model 过滤 | 是（JWT） | 200 |
+| PUT | `/api/v1/sessions/{session_id}` | 编辑会话标题/模式 | 是（JWT） | 200 |
+| DELETE | `/api/v1/sessions/{session_id}` | 级联删除会话（含消息/面试/资源清理） | 是（JWT） | 200 |
+| GET | `/api/v1/sessions/{session_id}/messages` | 分页获取聊天消息（含 request/response segments） | 是（JWT） | 200 |
+| GET | `/api/v1/interviews/{interview_id}` | 获取面试详情（含 qa_object） | 是（JWT） | 200 |
+| POST | `/api/v1/files/upload` | 通用文件上传（multipart，MinIO 存原文件 + MySQL 存元数据） | 是（JWT） | 200 |
+| GET | `/api/v1/avatar/{user_id}` | 头像公开代理（307 重定向到 MinIO 预签名 URL） | 否 | 307 |
 
-> **鉴权白名单**：`/health`、文档接口、`/api/v1/auth/register`、`/api/v1/auth/login`、`/api/v1/auth/refresh`、`/api/v1/avatar/{user_id}` 不挂登录鉴权，供监控探活、匿名认证与 `<img>` 标签直接访问头像使用；
-> 其余业务接口（含 `/api/v1/users/*`、`/api/v1/files/upload`）统一要求登录，在请求头携带 `Authorization: Bearer <access_token>`，
-> 缺失/过期/伪造令牌统一返回 401(40104)。
+> **鉴权白名单**：`/health`、文档接口、`/api/v1/auth/register`、`/api/v1/auth/login`、`/api/v1/auth/refresh`、`/api/v1/avatar/{user_id}` 不挂登录鉴权；
+> 其余业务接口（含 `/api/v1/sessions/*`、`/api/v1/interviews/*`、`/api/v1/files/upload`）统一要求登录。
 
 ### 鉴权流程（JWT 双令牌 + 无感刷新）
 
@@ -287,6 +305,16 @@ logger.error("系统异常：{}", exc)
 2. 后续业务请求在请求头携带 `Authorization: Bearer <access_token>`；
 3. 访问令牌过期时接口返回 401(40104)，前端调用 `POST /api/v1/auth/refresh`（请求体携带 `refresh_token`）换取新的访问令牌；
 4. 用新令牌自动重试原请求，全程无需用户重新登录；刷新令牌也失效（40105）时再跳转登录页。
+
+### 会话与消息数据流
+
+```
+前端发送消息
+  → 后端按 select_model（默认/知识精讲/刷题/简历优化/模拟面试/面试复盘）路由到 AI 服务
+  → AI 返回结果写入 chat_messages 表（含 request_text / response_text / segments）
+  → 模拟面试场景：同时写入 interviews 表，message.interview_id 关联
+  → 前端轮询 / WebSocket 获取消息更新
+```
 
 ### 请求示例
 
@@ -296,13 +324,17 @@ $login = Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/auth/login" `
   -Method Post -ContentType "application/json" `
   -Body '{"username":"alice","password":"Goodpass1"}'
 
-# 2. 携带访问令牌调用受保护接口
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/users/" `
+# 2. 创建会话
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/sessions/" `
   -Method Post -ContentType "application/json" `
   -Headers @{ "Authorization" = "Bearer $($login.data.access_token)" } `
-  -Body '{"username":"bob","password":"secret123"}'
+  -Body '{"title":"我的第一次面试","session_model":1}'
 
-# 3. 访问令牌过期后，用刷新令牌换新
+# 3. 获取会话列表
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/sessions/?page=1&page_size=20" `
+  -Headers @{ "Authorization" = "Bearer $($login.data.access_token)" }
+
+# 4. 访问令牌过期后，用刷新令牌换新
 Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/auth/refresh" `
   -Method Post -ContentType "application/json" `
   -Body (@{ refresh_token = $login.data.refresh_token } | ConvertTo-Json)
@@ -313,7 +345,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/auth/refresh" `
 项目采用 **HTTP 状态码 + 业务码** 双层设计：
 
 - **HTTP 状态码**：按真实语义返回，前端可直接用于请求成败判断、监控告警。
-- **响应体 `code`**：5 位业务码，前三位与 HTTP 状态码对齐，后两位做业务细分（同为 404 可区分"用户不存在/订单不存在"）。
+- **响应体 `code`**：5 位业务码，前三位与 HTTP 状态码对齐，后两位做业务细分（同为 404 可区分"用户不存在/会话不存在"）。
 
 ### 统一响应体结构
 
@@ -335,7 +367,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/auth/refresh" `
 
 | 场景 | HTTP 状态码 | body code | message 示例 |
 | --- | --- | --- | --- |
-| 成功 | 200 / 201 | 0 | 用户创建成功 |
+| 成功 | 200 / 201 | 0 | 操作成功 |
 | 用户名重复 | 400 | 40001 | 用户名已存在 |
 | 用户名或密码错误 | 401 | 40103 | 用户名或密码错误 |
 | 缺失/过期/伪造访问令牌 | 401 | 40104 | 访问令牌无效或已过期 |
@@ -345,7 +377,8 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/auth/refresh" `
 | 上传文件为空 | 400 | 40005 | 文件为空 |
 | 资源重复（并发兜底） | 400 | 40006 | 资源已存在 |
 | 用户不存在 | 404 | 40401 | 用户不存在 |
-| 用户未设置头像 | 404 | 40402 | 用户未设置头像 |
+| 会话不存在 | 404 | 40403 | 会话不存在 |
+| 面试记录不存在 | 404 | 40404 | 面试记录不存在 |
 | 路由不存在 | 404 | 404 | 请求的资源不存在 |
 | 请求参数校验失败 | 422 | 42200 | 字段【username】字段长度不能小于限制值 |
 | 健康检查数据库不可用 | 503 | 50300 | 服务异常：数据库不可用 |
@@ -355,10 +388,10 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/auth/refresh" `
 
 ```json
 {
-  "code": 40401,
-  "message": "用户不存在",
+  "code": 40403,
+  "message": "会话不存在",
   "data": null,
-  "detail": { "path": "/api/v1/users/999", "method": "GET", "query_params": {} }
+  "detail": { "path": "/api/v1/sessions/9999", "method": "GET", "query_params": {} }
 }
 ```
 
@@ -384,6 +417,7 @@ alembic upgrade head
 | `2026_09_13_1030_add_user_avatar` | users.avatar 头像字段 |
 | `2026_09_15_1000_add_session_tables` | session / chat_messages / interviews 会话相关表 |
 | `2026_09_15_1100_add_resources_table` | resources 资源元数据表 + chat_messages.file_extracted_text 字段 |
+| `2026_09_16_1000_add_chat_segments_interview_user` | chat_messages.request/response_segments 字段 + interviews 表 user_id 字段 |
 
 ## 九、MinIO 对象存储
 
@@ -437,7 +471,7 @@ user_{user_id}/{images|audio|files}/{file_hash}{ext}
   1. `prepare_avatar`：先校验图片（类型/大小/空文件），不上传、不写库；
   2. 建号成功后 `commit_avatar`：上传 MinIO、落元数据、回写 `users.avatar`。
 - 头像资源 `expire_time=None`（永不过期），被 `users.avatar` 永久引用，不参与定时清理。
-- 头像访问通过 `GET /api/v1/avatar/{user_id}` 公开代理（307 重定向到预签名 URL），`<img>` 标签可直接使用。
+- 头像访问通过 `GET /api/v1/avatar/{user_id}` 公开代理（307 重定向到预签名 URL），`<img>` 标签可直接使用。**注意**：MinIO 服务不可达时，该接口会超时并返回 HTTP 500，需确保 MinIO 正常运行。
 
 ### 过期清理
 
@@ -448,14 +482,15 @@ user_{user_id}/{images|audio|files}/{file_hash}{ext}
 ## 十、安全说明
 
 - **密码哈希**：`app/security.py` 使用 bcrypt 算法，存储时不保留明文。
-- **登录鉴权（JWT）**：`app/core/jwt.py` 基于 PyJWT 签发/校验 Access/Refresh 双令牌（HS256 验签，载荷含 sub/username/type/exp/jti，两类令牌严格隔离不可混用）；`app/routers/v1/deps.py` 的 `get_current_user` 依赖在业务路由组（`/api/v1/*`）统一挂载，未登录请求一律 401(40104)；签名密钥只从配置层（`JWT_SECRET_KEY` 环境变量）读取，业务层不写死。
-- **MinIO 私有桶 + 预签名 URL**：原文件存入 MinIO 私有桶，外部无法直接通过对象路径访问；前端临时访问通过 `MinioStorage.presigned_get_url` 生成带签名的预签名下载 URL，有效期由 `MINIO_PRESIGN_EXPIRY_SECONDS` 控制（默认 2 小时），过期后需重新获取。MinIO 连接密钥只从配置层读取，禁止硬编码。
-- **头像公开代理安全**：`GET /api/v1/avatar/{user_id}` 为**无鉴权公开接口**，因为 `<img>` 标签无法携带 `Authorization` 头。该接口仅返回 307 重定向到 MinIO 预签名 URL，不直接返回文件内容；预签名 URL 有时效限制，过期后浏览器再次请求即可获取新 URL。用户不存在返回 404(40401)，未设置头像返回 404(40402)。
+- **登录鉴权（JWT）**：`app/core/jwt.py` 基于 PyJWT 签发/校验 Access/Refresh 双令牌（HS256 验签，载荷含 sub/username/type/exp/jti，两类令牌严格隔离不可混用）；`app/routers/v1/deps.py` 的 `get_current_user` 依赖在业务路由组统一挂载，未登录请求一律 401(40104)；签名密钥只从配置层（`JWT_SECRET_KEY` 环境变量）读取，业务层不写死。
+- **MinIO 私有桶 + 预签名 URL**：原文件存入 MinIO 私有桶，外部无法直接通过对象路径访问；前端临时访问通过 `MinioStorage.presigned_get_url` 生成带签名的预签名下载 URL，有效期由 `MINIO_PRESIGN_EXPIRY_SECONDS` 控制（默认 2 小时），过期后需重新获取。
+- **头像公开代理安全**：`GET /api/v1/avatar/{user_id}` 为**无鉴权公开接口**，因为 `<img>` 标签无法携带 `Authorization` 头。该接口仅返回 307 重定向到 MinIO 预签名 URL，不直接返回文件内容；预签名 URL 有时效限制，过期后浏览器再次请求即可获取新 URL。
+- **会话越权防护**：所有会话/面试接口按 `session_id` + `user_id` 联合查询，越权访问统一返回 404，避免 ID 被枚举。
 - **敏感配置**：`.env.*` 包含数据库账号、MinIO 密钥与 JWT 密钥，已由 `.gitignore` 忽略，禁止提交；生产部署必须替换默认值。
-- **响应脱敏**：响应模型 `UserResponse` 仅暴露 `id` 与 `username`，不返回密码字段。
-- **健康检查脱敏**：`/health` 接口在数据库不可用时只返回 `database=fail` 布尔状态，异常原始信息（连接串、驱动报错）仅写入 `logs/error.log`，不回传给调用方，避免敏感信息外泄。
-- **日志脱敏**：所有 sink 强制 `diagnose=False`，异常堆栈不打印局部变量值；生产环境关闭控制台 sink，仅落盘到文件，减少敏感信息外露面。
-- **统一异常处理**：`app/core/handlers.py` 全局捕获业务/系统/参数/框架异常，系统错误堆栈仅写入日志文件（`logs/error.log`），对外只返回通用提示与请求定位信息。
+- **响应脱敏**：响应模型仅暴露必要字段，不返回密码字段等敏感信息。
+- **健康检查脱敏**：`/health` 接口在数据库不可用时只返回 `database=fail` 布尔状态，异常原始信息仅写入 `logs/error.log`，不回传给调用方。
+- **日志脱敏**：所有 sink 强制 `diagnose=False`，异常堆栈不打印局部变量值；生产环境关闭控制台 sink，仅落盘到文件。
+- **统一异常处理**：`app/core/handlers.py` 全局捕获业务/系统/参数/框架异常，系统错误堆栈仅写入日志文件，对外只返回通用提示与请求定位信息。
 
 ## 十一、冒烟测试
 
@@ -465,19 +500,8 @@ user_{user_id}/{images|audio|files}/{file_hash}{ext}
 
 - **数据库隔离**：`tests/conftest.py` 用 SQLite 内存数据库 + `StaticPool` 替代 MySQL，所有 Session 共享同一连接，测试不污染真实数据库。
 - **MinIO 隔离**：`conftest.py` 提供 `FakeMinio` 内存版 MinIO 夹具，覆写 `get_minio_storage` 依赖，记录上传对象供断言与去重验证，不依赖真实 MinIO 服务。
-- **依赖覆写**：仅覆写 `get_db` 与 `get_minio_storage`，无需真实 MySQL/MinIO；JWT 鉴权不绕过，用例通过真实"注册→登录"获取访问令牌后携带 Bearer 头访问业务接口，鉴权链路被真实覆盖。
+- **依赖覆写**：仅覆写 `get_db` 与 `get_minio_storage`，无需真实 MySQL/MinIO；JWT 鉴权不绕过，用例通过真实"注册→登录"获取访问令牌后携带 Bearer 头访问业务接口。
 - **用例隔离**：每个用例执行后自动清空所有表数据并重置限流器，保证用例间互不影响。
-
-### 覆盖范围
-
-| 测试文件 | 用例数 | 覆盖内容 |
-| --- | --- | --- |
-| `test_smoke.py` | 33 | 健康检查、文档可访问性；用户 CRUD 全链路；用户接口五方法未登录 401；用户名重复/不存在/校验失败等异常分支；注册成功、弱密码黑名单、重复用户名、注册限流 429、带头像/无头像注册 |
-| `test_auth_login.py` | 19 | 登录成功与令牌载荷、错误密码/未知用户名/缺字段；`/api/v1/auth/me` 保护与令牌类型校验；刷新令牌换新与各类异常；过期自动刷新重试闭环 |
-| `test_rate_limit.py` | 9 | 客户端 IP 解析（可信代理跳数 0/1/2、防 XFF 伪造）；固定窗口阈值拦截与窗口重置；高并发内存保护与 fail-open |
-| `test_upload_minio.py` | 11 | MinIO 上传鉴权、图片头像回写、普通用途不回写、文档不做头像、音频上传、MD5 去重复用、只提取内容场景、空文件/超大小/类型不支持错误分支、storage_scene 非法 422；注册头像资源不过期、非法头像不触达存储 |
-| `test_avatar_proxy.py` | 4 | 有头像用户 307 重定向到预签名 URL、无头像 404(40402)、用户不存在 404(40401)、无需 JWT 鉴权 |
-| **合计** | **76** | 全部通过 |
 
 ### 运行测试
 
