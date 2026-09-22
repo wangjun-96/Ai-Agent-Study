@@ -13,6 +13,8 @@ const SESSION_MODEL_STUDY: SessionModel = 0
 
 /** 加载会话列表（学习模式） */
 async function loadSessions() {
+  // 切换模块时重置当前激活的会话，避免默认展示其他模块的会话内容
+  chatStore.activeSessionId = ''
   await chatStore.fetchSessions({ session_model: SESSION_MODEL_STUDY, page: 1, page_size: 50 })
 }
 
@@ -53,6 +55,7 @@ chatStore.registerSendHandler(handleSend)
     :loading-more="chatStore.loadingMore"
     :has-more="chatStore.hasMoreMessages"
     :disabled="chatStore.isReplying"
+    :has-active-session="!!chatStore.activeSessionId"
     @send="chatStore.sendMessage"
     @load-more="handleLoadMore"
     @action="handleAction"

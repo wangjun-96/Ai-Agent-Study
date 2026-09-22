@@ -146,10 +146,8 @@ export const useChatStore = defineStore('chat', () => {
       const res = await getSessions(params)
       if (res.code === 0 && res.data) {
         sessions.value = (res.data.items || []).map(formatSessionResponse)
-        // 如果有会话且没有选中任何会话，自动选中第一个
-        if (sessions.value.length > 0 && !activeSessionId.value) {
-          await loadSession(sessions.value[0].id)
-        }
+        // 不再自动选中第一个会话：默认不显示任何聊天内容，
+        // 用户点击侧边栏的某个会话后才会在 ChatRoom 中显示对应消息与输入框
       }
     } catch (error) {
       console.error('获取会话列表失败:', error)
