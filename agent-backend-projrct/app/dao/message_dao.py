@@ -46,3 +46,52 @@ class MessageDao:
             .order_by(ChatMessage.create_at.asc())
         )
         return list(self.db.scalars(stmt))
+
+    def list_recent_by_session(self, session_id: int, *, limit: int) -> list[ChatMessage]:
+        """查询会话下最近的 limit 条消息（短期记忆用），返回按时间正序。
+
+        时间粒度为秒，同一秒内按自增主键二次排序，保证对话时序稳定。
+        """
+        stmt = (
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.create_at.desc(), ChatMessage.id.desc())
+            .limit(limit)
+        )
+        rows = list(self.db.scalars(stmt))
+        rows.reverse()
+        return rows
+
+    def insert_message(self, message: ChatMessage) -> ChatMessage:
+        """插入一条聊天消息，自带事务，失败自动回滚。"""
+        try:
+            self.db.add(message)
+            self.db.commit()
+            self.db.refresh(message)
+            return message
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def get_by_request_id(self, request_id: str) -> ChatMessage | None:
+        """按请求唯一标识查询消息（工作流按 run_id 回写用）。"""
+        stmt = select(ChatMessage).where(ChatMessage.request_id == request_id)
+        return self.db.scalars(stmt).first()
+
+    def update_response(
+        self,
+        message: ChatMessage,
+        *,
+        response_text: str,
+        response_payload: dict | None = None,
+    ) -> ChatMessage:
+        """更新 AI 回复正文与结构化数据，自带事务。"""
+        try:
+            message.response_text = response_text
+            message.response_payload = response_payload
+            self.db.commit()
+            self.db.refresh(message)
+            return message
+        except Exception:
+            self.db.rollback()
+            raise

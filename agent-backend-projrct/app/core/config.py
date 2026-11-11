@@ -103,6 +103,95 @@ class Settings(BaseSettings):
     # 资源过期策略：短过期场景（storage_scene=1）保留小时数，默认 2 小时
     RESOURCE_SHORT_EXPIRE_HOURS: int = 2
 
+    # ------------------------- 大模型（LLM）接入配置 -------------------------
+    # 模型提供方：openai / deepseek / dashscope / custom（均按 OpenAI 兼容协议接入）
+    LLM_PROVIDER: str = "openai"
+    # 模型 API Key：敏感信息只走环境变量，未配置时对话接口返回明确错误提示
+    LLM_API_KEY: str = ""
+    # 接入地址（Base URL）：为空时使用 provider 默认地址，custom 场景必须显式配置
+    LLM_BASE_URL: str = ""
+    # 模型名称：为空时使用 provider 默认模型
+    LLM_MODEL: str = ""
+    # 采样温度：0 更确定，1 更发散
+    LLM_TEMPERATURE: float = 0.7
+    # 单次回复最大 token 数
+    LLM_MAX_TOKENS: int = 2048
+    # 请求超时（秒）
+    LLM_TIMEOUT: int = 60
+
+    # ------------------------- 记忆层（短期记忆）配置 -------------------------
+    # 上下文回带的最近对话轮数（一轮 = 一条用户消息 + 一条 AI 回复）
+    MEMORY_MAX_TURNS: int = 8
+    # 上下文总字符预算：超出后从最旧的一轮开始裁剪，避免超长提示词
+    MEMORY_MAX_CHARS: int = 8000
+
+    # ------------------------- Redis 配置 -------------------------
+    # 是否启用 Redis（关闭后提示词模板/工作记忆自动降级为数据库直读）
+    REDIS_ENABLED: bool = True
+    # Redis 服务地址
+    REDIS_HOST: str = "127.0.0.1"
+    # Redis 端口
+    REDIS_PORT: int = 6379
+    # Redis 逻辑库编号
+    REDIS_DB: int = 0
+    # Redis 密码，无密码时为空
+    REDIS_PASSWORD: str = ""
+    # 连接/读写超时（秒）
+    REDIS_TIMEOUT: int = 3
+
+    # 提示词模板生效版本缓存 Key（Redis Hash：field={agent}:{scene}，value=模板 JSON）
+    PROMPT_CACHE_KEY: str = "prompt:templates:active"
+
+    # ------------------------- 用户画像（提示词变量） -------------------------
+    # 提示词变量注入：单个变量值的最大长度，超长截断，防止提示词被撑爆
+    PROMPT_VAR_MAX_LENGTH: int = 500
+    # 提示词变量注入：变量值总长度上限，超出后拒绝填充
+    PROMPT_VARS_TOTAL_MAX_LENGTH: int = 4000
+
+    # ------------------------- RAG（知识库向量检索） -------------------------
+    # DashScope 文本向量化 API Key（text-embedding-v4），为空时入库/检索给出明确错误
+    DASHSCOPE_API_KEY: str = ""
+    # Qdrant 服务地址与端口（远端 Server 模式使用）
+    QDRANT_HOST: str = "127.0.0.1"
+    QDRANT_PORT: int = 6333
+    # Qdrant 本地文件模式路径：非空时使用嵌入式存储（无需部署 Qdrant 服务）
+    QDRANT_LOCAL_PATH: str = ""
+    # 知识库向量集合名
+    QDRANT_COLLECTION: str = "knowledge_chunks"
+    # 向量化模型与维度（DashScope text-embedding-v4）
+    RAG_EMBEDDING_MODEL: str = "text-embedding-v4"
+    RAG_EMBEDDING_DIM: int = 1024
+    # 检索默认条数与相似度阈值（低于阈值丢弃）
+    RAG_TOP_K: int = 3
+    RAG_SCORE_THRESHOLD: float = 0.4
+    # 切片大小、重叠长度与单条原文最大长度（检索注入用）
+    RAG_CHUNK_SIZE: int = 500
+    RAG_CHUNK_OVERLAP: int = 50
+    RAG_CHUNK_TEXT_MAX: int = 800
+
+    # ------------------------- 扫描版 PDF OCR（火山引擎） -------------------------
+    # 火山引擎访问密钥（Access Key / Secret Key），为空时扫描件解析给出明确错误
+    VOLC_ACCESS_KEY: str = ""
+    VOLC_SECRET_KEY: str = ""
+    # 火山引擎区域
+    VOLC_REGION: str = "cn-north-1"
+
+    # ------------------------- 工作记忆（Redis） -------------------------
+    # 工作记忆 Key 过期时间（秒），每次读写自动续期，默认 8 小时
+    WORKING_MEMORY_TTL_SECONDS: int = 8 * 60 * 60
+    # 工作记忆原始消息总字符阈值，超过触发总结与裁剪
+    WORKING_MEMORY_MAX_CHARS: int = 8000
+    # 总结后保留的最近消息条数（3 轮 = 6 条）
+    WORKING_MEMORY_KEEP_MESSAGES: int = 6
+    # 摘要长度上限（字）
+    SUMMARY_MAX_CHARS: int = 500
+
+    # ------------------------- 长期记忆（用户画像语义判断） -------------------------
+    # 本地向量模型名称（fastembed）
+    LONG_TERM_EMBEDDING_MODEL: str = "BAAI/bge-small-zh-v1.5"
+    # 语义相似度阈值：达到阈值判定为画像写入意图
+    LONG_TERM_SIMILARITY_THRESHOLD: float = 0.62
+
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),
         env_file_encoding="utf-8",

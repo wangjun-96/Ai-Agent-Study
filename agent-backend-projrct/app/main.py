@@ -1,5 +1,6 @@
 """FastAPI 应用入口：初始化日志、创建应用实例、注册全局异常处理器、挂载路由。"""
 import asyncio
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,23 +9,57 @@ from fastapi.staticfiles import StaticFiles
 from app.core import register_exception_handlers, settings, setup_logging
 from app.core.logger import get_logger
 from app.core.scheduler import daily_cleanup_loop
+from app.dao.prompt_template_dao import PromptTemplateDao
+from app.db.database import SessionLocal
+from app.integrations.redis_client import get_redis_cache
 from app.routers.health import router as health_router
 from app.routers.v1.api import api_router as v1_router
+from app.services.prompt_template_service import PromptTemplateManager
+from app.services.semantic_intent_service import SemanticIntentClassifier
 
 # 初始化日志（控制台 + 按天滚动文件 + 错误文件，级别随环境配置）
 setup_logging()
 logger = get_logger("main")
 
 
+def load_prompt_templates_to_redis() -> None:
+    """启动加载：把生效的提示词模板批量写入 Redis 缓存。
+
+    表尚未迁移或 Redis 不可用时只记录告警，不阻断应用启动。
+    """
+    db = SessionLocal()
+    try:
+        manager = PromptTemplateManager(PromptTemplateDao(db), get_redis_cache())
+        manager.load_active_templates()
+    except Exception as exc:  # noqa: BLE001 启动加载失败不阻断主流程
+        logger.warning("提示词模板启动加载失败，已跳过 error={}", exc)
+    finally:
+        db.close()
+
+
+def _warmup_semantic_model() -> None:
+    """后台预热语义意图模型：下载/加载失败只记告警，不影响应用启动。"""
+    try:
+        SemanticIntentClassifier.get().warmup()
+    except Exception as exc:  # noqa: BLE001 预热失败不阻断启动
+        logger.warning("语义意图模型预热失败 error={}", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动定时清理任务，关闭时取消。"""
+    """应用生命周期：启动定时清理任务与模板缓存加载，关闭时取消定时任务。"""
     logger.info(
         "应用启动 env={} log_level={} sql_echo={}",
         settings.APP_ENV,
         settings.LOG_LEVEL,
         settings.SQL_ECHO,
     )
+    # 启动加载提示词模板到 Redis（失败自动降级，不影响服务可用性）
+    load_prompt_templates_to_redis()
+    # 后台线程预热语义意图模型：首次使用无需等待模型下载，不阻塞启动
+    threading.Thread(
+        target=_warmup_semantic_model, daemon=True, name="semantic-warmup"
+    ).start()
     # 每日 03:00 过期资源清理任务（睡眠等待，不到点不访问数据库/MinIO）
     cleanup_task = asyncio.create_task(daily_cleanup_loop())
     yield

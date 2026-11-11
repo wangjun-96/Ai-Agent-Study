@@ -2,7 +2,8 @@
 
 设计要点：
 1. 写操作统一加事务，失败自动回滚；
-2. 级联删除（delete_cascade）在单个事务内完成：面试记录 → 消息 → 资源 → 会话，
+2. 级联删除（delete_cascade）在单个事务内完成：
+   工作流记录 → 面试记录 → 消息 → 知识切片 → 资源 → 会话，
    保证外键依赖顺序与原子性；
 3. 禁止裸写原生 SQL 字符串拼接，统一使用 SQLAlchemy 2.0 语法。
 """
@@ -10,7 +11,14 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.db.base import Base  # noqa: F401
-from app.db.models import ChatMessage, Interview, Resource, Session as SessionModel
+from app.db.models import (
+    ChatMessage,
+    Interview,
+    KnowledgeChunk,
+    Resource,
+    Session as SessionModel,
+    WorkflowRun,
+)
 
 
 class SessionDao:
@@ -84,29 +92,42 @@ class SessionDao:
         """级联删除会话及其全部关联数据，单事务保证原子性。
 
         删除顺序（满足外键依赖）：
-        1. interviews（依赖 chat_messages.message_id 与 sessions.id）
-        2. chat_messages（依赖 sessions.id）
-        3. resources（按消息 segments 收集的 resource_ids 物理删除）
-        4. sessions
+        1. workflow_runs（依赖 sessions.id）
+        2. interviews（依赖 chat_messages.message_id 与 sessions.id）
+        3. chat_messages（依赖 sessions.id）
+        4. knowledge_chunks（依赖 resources.id）
+        5. resources（按消息 segments 收集的 resource_ids 物理删除）
+        6. sessions
 
         :param session_id: 待删除的会话 ID
         :param resource_ids: 从消息 segments 中收集的资源 ID 列表
         """
         try:
-            # 1. 删除会话下的面试记录
+            # 1. 删除会话下的工作流运行记录（依赖 sessions.id）
+            self.db.execute(
+                delete(WorkflowRun).where(WorkflowRun.session_id == session_id)
+            )
+            # 2. 删除会话下的面试记录
             self.db.execute(
                 delete(Interview).where(Interview.session_id == session_id)
             )
-            # 2. 删除会话下的聊天消息
+            # 3. 删除会话下的聊天消息
             self.db.execute(
                 delete(ChatMessage).where(ChatMessage.session_id == session_id)
             )
-            # 3. 删除关联资源元数据（MinIO 对象已由 Service 层提前删除）
+            # 4. 删除资源对应的知识切片（依赖 resources.id，须先于资源删除）
+            if resource_ids:
+                self.db.execute(
+                    delete(KnowledgeChunk).where(
+                        KnowledgeChunk.resource_id.in_(resource_ids)
+                    )
+                )
+            # 5. 删除关联资源元数据（MinIO 对象已由 Service 层提前删除）
             if resource_ids:
                 self.db.execute(
                     delete(Resource).where(Resource.id.in_(resource_ids))
                 )
-            # 4. 删除会话本身
+            # 6. 删除会话本身
             self.db.execute(
                 delete(SessionModel).where(SessionModel.id == session_id)
             )

@@ -171,6 +171,14 @@ class ChatMessage(Base):
     response_segments: Mapped[list[dict] | None] = mapped_column(
         JSON, nullable=True, comment="AI回复附件段（file/image/audio）"
     )
+    # RAG 参考来源：只存 chunk_id 与 score，知识块原文保存在 knowledge_chunks
+    reference_sources: Mapped[list[dict] | None] = mapped_column(
+        JSON, nullable=True, comment="RAG参考来源（chunk_id/score）"
+    )
+    # AI 回复结构化数据：如测评出题的 quiz JSON，提交评分后清空
+    response_payload: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="AI回复结构化数据（如测评题目JSON）"
+    )
     # 关联面试记录 ID：仅模拟面试入口消息/面试复盘消息有值，用于前端面试卡片逻辑
     # use_alter=True：与 interviews.message_id 形成循环外键，延迟建表后通过 ALTER 添加约束
     interview_id: Mapped[int | None] = mapped_column(
@@ -356,3 +364,272 @@ class Resource(Base):
             "file_hash", "user_id", name="uk_file_hash_user_id"
         ),
     )
+
+
+class PromptTemplate(Base):
+    """提示词模板表：公共模板与私有模板统一存储，版本按 (agent_name, scene) 独立递增。
+
+    规则：
+    - 公共模板：agent_name 为空，template_type=2，所有智能体共享；
+    - 私有模板：agent_name 有值，template_type=1，仅该智能体使用；
+    - 同一 (agent_name, scene) 下只有一条 is_active=1 的生效版本。
+
+    字段：
+    - agent_name       ：智能体名称，公共模板为空
+    - scene            ：业务场景标识
+    - template_type    ：模板类型（1=私有，2=公共），见 TemplateType 枚举
+    - template_content ：模板正文（含 {变量} 占位符）
+    - variables        ：变量名列表（JSON 字符串）
+    - version          ：版本号，同组内自增
+    - is_active        ：是否生效版本（0=否，1=是）
+    - description      ：版本说明
+    - created_at       ：创建时间，Unix 秒时间戳
+    """
+
+    __tablename__ = "prompt_templates"
+
+    # 自增主键
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, comment="模板ID")
+    # 智能体名称：公共模板留空
+    agent_name: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True, comment="智能体名称（公共模板为空）"
+    )
+    # 业务场景标识，加索引加速按场景组装
+    scene: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True, comment="业务场景"
+    )
+    # 模板类型：1=私有，2=公共（见 TemplateType 枚举）
+    template_type: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="模板类型：1=私有，2=公共"
+    )
+    # 模板正文（MEDIUMTEXT，支持长提示词）
+    template_content: Mapped[str] = mapped_column(
+        LargeText, nullable=False, comment="模板正文"
+    )
+    # 变量名列表（JSON 字符串，如 ["target_job","weak_topics"]）
+    variables: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, comment="变量名列表（JSON字符串）"
+    )
+    # 版本号：同一 (agent_name, scene) 内自增
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1", comment="版本号"
+    )
+    # 是否生效版本：0=否，1=是；同组内仅一条为 1
+    is_active: Mapped[int] = mapped_column(
+        TinyInt,
+        nullable=False,
+        server_default="0",
+        comment="是否生效版本：0=否，1=是",
+    )
+    # 版本说明
+    description: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="版本说明"
+    )
+    # 创建时间：Unix 秒时间戳
+    created_at: Mapped[int] = mapped_column(
+        BigInteger,
+        server_default=func.unix_timestamp(),
+        nullable=False,
+        comment="创建时间（Unix秒）",
+    )
+
+    # 复合索引：按智能体 + 场景 + 版本检索
+    __table_args__ = (
+        Index("ix_prompt_templates_agent_scene_version", "agent_name", "scene", "version"),
+    )
+
+
+class UserProfile(Base):
+    """用户画像表：存储用户背景信息，供提示词变量注入使用。
+
+    字段：
+    - user_id        ：用户ID（外键，一人一条画像）
+    - target_job     ：目标岗位
+    - years_experience：工作经验
+    - target_level   ：目标等级
+    - target_skills  ：已掌握技能（JSON 数组）
+    - weak_topics    ：薄弱点（JSON 数组）
+    - created_at     ：创建时间，Unix 秒时间戳
+    """
+
+    __tablename__ = "user_profiles"
+
+    # 自增主键
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, comment="画像ID")
+    # 用户ID：一人一条画像，联合唯一键保证
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+        comment="用户ID",
+    )
+    # 目标岗位
+    target_job: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, comment="目标岗位"
+    )
+    # 工作经验（如「应届」「3年」）
+    years_experience: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, comment="工作经验"
+    )
+    # 目标等级（如「初级」「高级」「专家」）
+    target_level: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, comment="目标等级"
+    )
+    # 已掌握技能（JSON 数组）
+    target_skills: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True, comment="已掌握技能（JSON数组）"
+    )
+    # 薄弱点（JSON 数组）
+    weak_topics: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True, comment="薄弱点（JSON数组）"
+    )
+    # 学习目标
+    learning_goal: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="学习目标"
+    )
+    # 学习偏好/风格
+    learning_style: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, comment="学习风格/偏好"
+    )
+    # 面试关注方向（JSON 数组）
+    interview_focus: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True, comment="面试关注方向（JSON数组）"
+    )
+    # 长期记忆摘要（大文本）
+    long_term_summary: Mapped[str | None] = mapped_column(
+        LargeText, nullable=True, comment="长期记忆摘要"
+    )
+    # 创建时间：Unix 秒时间戳
+    created_at: Mapped[int] = mapped_column(
+        BigInteger,
+        server_default=func.unix_timestamp(),
+        nullable=False,
+        comment="创建时间（Unix秒）",
+    )
+
+    # 联合唯一键：一个用户仅一条画像
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uk_user_profiles_user_id"),
+    )
+
+
+class KnowledgeChunk(Base):
+    """知识切片表：RAG 切片原文存储，与 Qdrant 向量通过 vector_id 关联。
+
+    字段：
+    - resource_id ：关联 resources 表主键（来源文件）
+    - user_id     ：归属用户，检索隔离
+    - vector_id   ：Qdrant point id（UUID），全表唯一
+    - text        ：切片原文（检索命中后回查注入上下文）
+    - chunk_index ：切片在文件内的序号
+    - char_count  ：切片字符数
+    - create_at   ：创建时间，Unix 秒时间戳
+    """
+
+    __tablename__ = "knowledge_chunks"
+
+    # 自增主键
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, comment="切片ID")
+    # 关联资源表：切片来源文件（resources.id 为 BIGINT，外键类型必须对齐）
+    resource_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("resources.id"),
+        nullable=False,
+        index=True,
+        comment="资源ID",
+    )
+    # 归属用户：检索时按用户隔离
+    user_id: Mapped[int] = mapped_column(
+        Integer, nullable=False, index=True, comment="用户ID"
+    )
+    # Qdrant point id（UUID），两侧关联键
+    vector_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True, comment="向量ID（Qdrant point id）"
+    )
+    # 切片原文
+    text: Mapped[str] = mapped_column(LargeText, nullable=False, comment="切片原文")
+    # 切片序号
+    chunk_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="切片序号"
+    )
+    # 切片字符数
+    char_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="切片字符数"
+    )
+    # 创建时间：Unix 秒时间戳
+    create_at: Mapped[int] = mapped_column(
+        BigInteger,
+        server_default=func.unix_timestamp(),
+        nullable=False,
+        comment="创建时间（Unix秒）",
+    )
+
+    # 复合索引：按资源 + 用户快速回查
+    __table_args__ = (
+        Index("ix_knowledge_chunks_resource_user", "resource_id", "user_id"),
+    )
+
+
+class WorkflowRun(Base):
+    """工作流运行记录表：保存业务快照，LangGraph 执行现场由 checkpoint 保存。
+
+    字段：
+    - run_id        ：工作流唯一标识（同时作为 LangGraph thread_id），唯一索引
+    - user_id       ：发起用户
+    - session_id    ：关联会话
+    - workflow_type ：工作流类型（如 learning_quiz）
+    - status        ：状态（created/waiting_answer/grading/completed/failed）
+    - state_json    ：完整业务状态快照（题目、答案、评分结果）
+    - error_message ：失败原因
+    - created_at / updated_at / completed_at：Unix 秒时间戳
+    """
+
+    __tablename__ = "workflow_runs"
+
+    # 自增主键
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, comment="运行记录ID")
+    # 工作流唯一标识（LangGraph thread_id）
+    run_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True, comment="工作流运行ID"
+    )
+    # 发起用户
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True, comment="用户ID"
+    )
+    # 关联会话
+    session_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sessions.id"), nullable=False, index=True, comment="会话ID"
+    )
+    # 工作流类型
+    workflow_type: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="工作流类型"
+    )
+    # 状态
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="created", comment="运行状态"
+    )
+    # 业务状态快照
+    state_json: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="业务状态快照"
+    )
+    # 失败原因
+    error_message: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, comment="失败原因"
+    )
+    # 创建 / 更新 / 完成时间（Unix 秒）
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, server_default=func.unix_timestamp(), nullable=False, comment="创建时间（Unix秒）"
+    )
+    updated_at: Mapped[int] = mapped_column(
+        BigInteger, server_default=func.unix_timestamp(), nullable=False, comment="更新时间（Unix秒）"
+    )
+    completed_at: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, comment="完成时间（Unix秒）"
+    )
+
+    # 复合索引：按用户 + 状态查询
+    __table_args__ = (
+        Index("ix_workflow_runs_user_status", "user_id", "status"),
+    )
+

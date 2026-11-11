@@ -14,17 +14,25 @@ from app.core import BusinessException
 from app.core.jwt import decode_token
 from app.dao.interview_dao import InterviewDao
 from app.dao.message_dao import MessageDao
+from app.dao.prompt_template_dao import PromptTemplateDao
 from app.dao.resource_dao import ResourceDao
 from app.dao.session_dao import SessionDao
 from app.dao.user_dao import UserDao
-from app.db.database import get_db
+from app.dao.workflow_run_dao import WorkflowRunDao
+from app.db.database import SessionLocal, get_db
 from app.db.models import User
 from app.enums.response_code import ResponseCode
 from app.enums.token_type import TokenType
 from app.integrations.minio_client import MinioStorage, get_minio_storage
+from app.integrations.redis_client import RedisCache, get_redis_cache
 from app.services.interview_service import InterviewService
+from app.services.learning_workflow_service import LearningWorkflowService
 from app.services.message_service import MessageService
+from app.services.orchestrator_service import OrchestratorService
+from app.services.prompt_template_service import PromptTemplateManager
+from app.services.rag_service import RagService
 from app.services.session_service import SessionService
+from app.services.stream_chat_service import StreamChatService
 from app.services.upload_service_minio import MinioUploadService
 from app.services.user_service import UserService
 
@@ -103,6 +111,57 @@ def get_interview_service(
 ) -> InterviewService:
     """构造面试业务服务，注入面试 DAO。"""
     return InterviewService(interview_dao)
+
+
+def get_stream_chat_service(
+    session_dao: SessionDao = Depends(get_session_dao),
+) -> StreamChatService:
+    """构造流式聊天服务：请求级 DAO 用于归属校验，Session 工厂供流式期间独立管理连接。"""
+    return StreamChatService(session_dao, SessionLocal)
+
+
+def get_prompt_template_dao(
+    db: Session = Depends(get_db),
+) -> PromptTemplateDao:
+    """构造提示词模板 DAO，注入当前请求的 Session。"""
+    return PromptTemplateDao(db)
+
+
+def get_prompt_template_manager(
+    dao: PromptTemplateDao = Depends(get_prompt_template_dao),
+    cache: RedisCache | None = Depends(get_redis_cache),
+) -> PromptTemplateManager:
+    """构造提示词模板管理器，注入 DAO 与 Redis 缓存工具。"""
+    return PromptTemplateManager(dao, cache)
+
+
+def get_rag_service(
+    resource_dao: ResourceDao = Depends(get_resource_dao),
+    minio_storage: MinioStorage = Depends(get_minio_storage),
+) -> RagService:
+    """构造知识库入库服务，注入资源 DAO 与 MinIO 工具。"""
+    return RagService(resource_dao, minio_storage)
+
+
+def get_workflow_run_dao(db: Session = Depends(get_db)) -> WorkflowRunDao:
+    """构造工作流运行记录 DAO，注入当前请求的 Session。"""
+    return WorkflowRunDao(db)
+
+
+def get_learning_workflow_service(
+    session_dao: SessionDao = Depends(get_session_dao),
+    workflow_run_dao: WorkflowRunDao = Depends(get_workflow_run_dao),
+    message_dao: MessageDao = Depends(get_message_dao),
+) -> LearningWorkflowService:
+    """构造学习测评工作流服务，注入会话/运行记录/消息 DAO。"""
+    return LearningWorkflowService(session_dao, workflow_run_dao, message_dao)
+
+
+def get_orchestrator_service(
+    learning_service: LearningWorkflowService = Depends(get_learning_workflow_service),
+) -> OrchestratorService:
+    """构造流程总控服务，注入学习测评工作流服务。"""
+    return OrchestratorService(learning_service)
 
 
 def get_current_user(

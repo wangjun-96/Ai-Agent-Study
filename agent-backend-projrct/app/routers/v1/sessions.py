@@ -6,10 +6,12 @@
 3. PUT  /sessions/{session_id}          ：编辑会话标题
 4. DELETE /sessions/{session_id}        ：删除会话（级联删除消息/面试/资源）
 5. GET  /sessions/{session_id}/messages ：分页获取聊天消息
+6. POST /sessions/{session_id}/stream-chat ：AI 流式对话（SSE）
 
 所有接口统一挂载 JWT 登录鉴权，越权访问（非本人会话）统一返回 404。
 """
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import StreamingResponse
 
 from app.core import success
 from app.core.pagination import PageParams, PageResult
@@ -20,11 +22,13 @@ from app.routers.v1.deps import (
     get_current_user,
     get_message_service,
     get_session_service,
+    get_stream_chat_service,
 )
-from app.schemas.message import MessageResponse, Segment
+from app.schemas.message import MessageResponse, Segment, StreamChatRequest
 from app.schemas.session import SessionCreate, SessionResponse, SessionUpdate
 from app.services.message_service import MessageService
 from app.services.session_service import SessionService
+from app.services.stream_chat_service import StreamChatService
 
 # 公共错误响应文档：422 参数校验失败，各接口复用
 _VALIDATION_ERROR_DOC = {
@@ -161,7 +165,7 @@ def list_messages(
     service: MessageService = Depends(get_message_service),
 ) -> dict:
     """分页查询会话下的聊天消息。"""
-    messages, total, status_map = service.list_messages(
+    messages, total, status_map, sources_map = service.list_messages(
         session_id, current_user.id, page
     )
     items = [
@@ -173,6 +177,8 @@ def list_messages(
             response_segments=[Segment(**s) for s in (msg.response_segments or [])],
             status=status_map.get(msg.interview_id) if msg.interview_id else None,
             interview_id=msg.interview_id,
+            sources=sources_map.get(msg.id, []),
+            response_payload=msg.response_payload,
             create_at=msg.create_at,
         ).model_dump()
         for msg in messages
@@ -184,3 +190,37 @@ def list_messages(
         page_size=page.page_size,
     )
     return success(data.model_dump())
+
+
+@router.post(
+    "/{session_id}/stream-chat",
+    summary="流式聊天（SSE）",
+    description=(
+        "基于 LangChain 三层架构（模型层 llm.py / 提示词层 prompt_layer.py / "
+        "记忆层 memory.py）的流式对话接口。响应类型为 text/event-stream，"
+        "逐帧下发事件：start / delta（增量文本）/ done（含 message_id）/ error。"
+        "记忆层回带最近若干轮历史，流式结束后本轮问答写入 chat_messages。"
+    ),
+    response_class=StreamingResponse,
+    responses={
+        404: {"model": ApiResponse, "description": "会话不存在(40403)"},
+    },
+)
+async def stream_chat(
+    session_id: int,
+    payload: StreamChatRequest,
+    current_user: User = Depends(get_current_user),
+    service: StreamChatService = Depends(get_stream_chat_service),
+) -> StreamingResponse:
+    """流式对话：先做会话归属校验，再以 SSE 逐帧返回模型输出。"""
+    # 归属校验在返回响应前完成，越权直接抛 404，不会进入流式阶段
+    service.assert_session(session_id, current_user.id)
+    return StreamingResponse(
+        service.stream(session_id, current_user.id, payload),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # 关闭 Nginx 等反向代理的响应缓冲，保证增量文本实时下发
+            "X-Accel-Buffering": "no",
+        },
+    )

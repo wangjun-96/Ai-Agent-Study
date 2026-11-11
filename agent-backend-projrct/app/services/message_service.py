@@ -14,6 +14,7 @@ from app.dao.message_dao import MessageDao
 from app.dao.session_dao import SessionDao
 from app.db.models import ChatMessage
 from app.enums.response_code import ResponseCode
+from app.rag.chunk_store import fetch_sources_by_reference
 
 logger = get_logger("message_service")
 
@@ -33,11 +34,12 @@ class MessageService:
 
     def list_messages(
         self, session_id: int, user_id: int, page: PageParams
-    ) -> tuple[list[ChatMessage], int, dict[int, int]]:
-        """分页查询会话下的消息，并回填关联面试的 status。
+    ) -> tuple[list[ChatMessage], int, dict[int, int], dict[int, list[dict]]]:
+        """分页查询会话下的消息，并回填关联面试的 status 与 RAG 来源。
 
-        :return: (messages, total, interview_status_map)
+        :return: (messages, total, interview_status_map, sources_map)
                  interview_status_map: {interview_id: status}
+                 sources_map: {message_id: [source, ...]}（按 reference_sources 回查）
         """
         # 校验会话归属当前用户（越权统一返回 404）
         session = self.session_dao.get_session_by_user(session_id, user_id)
@@ -57,6 +59,15 @@ class MessageService:
         ]
         status_map = self.interview_dao.list_status_by_ids(interview_ids)
 
+        # 按消息的 reference_sources 批量回查知识切片与来源文件
+        sources_map: dict[int, list[dict]] = {}
+        for msg in messages:
+            references = msg.reference_sources or []
+            if references:
+                sources_map[msg.id] = fetch_sources_by_reference(
+                    self.message_dao.db, references
+                )
+
         logger.info(
             "消息列表查询 session_id={} page={} page_size={} total={}",
             session_id,
@@ -64,4 +75,4 @@ class MessageService:
             page.page_size,
             total,
         )
-        return messages, total, status_map
+        return messages, total, status_map, sources_map

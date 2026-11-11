@@ -10,10 +10,25 @@
 - avatar  ：头像公开代理，无鉴权（供 <img> 标签直接访问）
 - sessions：会话与聊天消息，路由组统一挂载 JWT 鉴权
 - interviews：面试记录，路由组统一挂载 JWT 鉴权
+- prompts：提示词模板版本管理，路由组统一挂载 JWT 鉴权
+- rag    ：知识库入库，路由组统一挂载 JWT 鉴权
+- learning_workflows：学习测评工作流（出题/作答评分/状态查询），路由组统一挂载 JWT 鉴权
+- orchestrator：流程总控入口（自动分流工作流或通用聊天），路由组统一挂载 JWT 鉴权
 """
 from fastapi import APIRouter
 
-from app.routers.v1 import auth, avatar, files, interviews, sessions, users
+from app.routers.v1 import (
+    auth,
+    avatar,
+    files,
+    interviews,
+    learning_workflows,
+    orchestrator,
+    prompts,
+    rag,
+    sessions,
+    users,
+)
 
 # v1 统一聚合路由：main.py 只挂载这一个
 api_router = APIRouter()
@@ -26,6 +41,10 @@ api_router.include_router(users.router)
 api_router.include_router(files.router)
 api_router.include_router(sessions.router)
 api_router.include_router(interviews.router)
+api_router.include_router(prompts.router)
+api_router.include_router(rag.router)
+api_router.include_router(learning_workflows.router)
+api_router.include_router(orchestrator.router)
 
 # 头像公开代理路由：无 JWT 鉴权，供前端 <img src="/api/v1/avatar/{user_id}"> 直接使用
 api_router.include_router(avatar.router)

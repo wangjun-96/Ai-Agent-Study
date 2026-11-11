@@ -37,8 +37,35 @@ loguru==0.7.2
 # 表单/文件上传解析（multipart/form-data），FastAPI UploadFile 依赖
 python-multipart
 
+# LangChain 核心：Prompt 模板、消息类型、Runnable 链路组装
+langchain>=0.3
+# LangChain OpenAI 兼容模型适配器（openai / deepseek / dashscope 均走此适配器）
+langchain-openai>=0.2
+# 递归智能切片器（RAG 切片按标题/段落/句子优先级切分）
+langchain-text-splitters>=1.0
+# LangGraph：学习测评工作流编排（StateGraph / interrupt / checkpoint）
+langgraph>=1.0
+
+# Redis 客户端：提示词模板缓存、工作记忆存储
+redis>=5.0
+
 # MinIO 对象存储 SDK（原文件存储，元数据保留在 MySQL）
 minio
+
+# RAG：向量数据库客户端（Server / 本地文件模式）
+qdrant-client
+# DashScope 文本向量化 SDK（text-embedding-v4）
+dashscope
+# PDF 解析与扫描件渲染（替代 PyPDF2）
+pypdfium2
+# Word 文档解析（标题结构识别）
+python-docx
+# 火山引擎 OCR SDK（扫描版 PDF 兜底）
+volcengine
+# 图片处理（PDF 页面渲染为 PNG）
+pillow
+# 轻量本地向量模型（长期记忆意图判断 / 语义意图分类）
+fastembed
 
 # HTTP 客户端，用于编写接口冒烟测试
 httpx

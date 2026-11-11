@@ -62,6 +62,16 @@ class MinioStorage:
             content_type=content_type,
         )
 
+    def get_object_bytes(self, object_key: str, bucket: str | None = None) -> bytes:
+        """读取对象内容并返回字节（RAG 入库解析原文件时使用）。"""
+        target_bucket = bucket or self._bucket
+        response = self._client.get_object(target_bucket, object_key)
+        try:
+            return response.read()
+        finally:
+            response.close()
+            response.release_conn()
+
     def delete_object(self, object_key: str, bucket: str | None = None) -> None:
         """删除对象；对象已不存在（NoSuchKey）视为删除成功。"""
         target_bucket = bucket or self._bucket
