@@ -4,6 +4,9 @@ import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core import register_exception_handlers, settings, setup_logging
@@ -16,6 +19,17 @@ from app.routers.health import router as health_router
 from app.routers.v1.api import api_router as v1_router
 from app.services.prompt_template_service import PromptTemplateManager
 from app.services.semantic_intent_service import SemanticIntentClassifier
+
+# Swagger UI 静态资源 CDN：
+# - jsdelivr 在国内经常被强制关闭连接；
+# - 优先使用国内镜像 npmmirror（https://registry.npmmirror.com），
+#   该镜像同步 npm 包内容，路径格式为 /<包名>/<版本>/files/<文件相对路径>；
+# - 如需完全离线，可下载 swagger-ui-dist@5 到项目 static/swagger-ui/ 后改为本地路径。
+SWAGGER_JS_URL = "https://registry.npmmirror.com/swagger-ui-dist/5/files/swagger-ui-bundle.js"
+SWAGGER_CSS_URL = "https://registry.npmmirror.com/swagger-ui-dist/5/files/swagger-ui.css"
+# favicon 用 FastAPI 官方图（或改为 data URI 彻底离线）
+SWAGGER_FAVICON_URL = "https://fastapi.tiangolo.com/img/favicon.png"
+REDOC_JS_URL = "https://registry.npmmirror.com/redoc/latest/files/bundles/redoc.standalone.js"
 
 # 初始化日志（控制台 + 按天滚动文件 + 错误文件，级别随环境配置）
 setup_logging()
@@ -67,12 +81,78 @@ async def lifespan(app: FastAPI):
     logger.info("应用关闭 env={}", settings.APP_ENV)
 
 
+def _custom_openapi() -> dict:
+    """自定义 OpenAPI schema：统一 info 字段，便于 Swagger UI 展示。"""
+    schema = get_openapi(
+        title=settings.APP_NAME,
+        version="1.0.0",
+        description=(
+            f"## {settings.APP_NAME}\n\n"
+            "基于 **FastAPI + SQLAlchemy 2.0 + MySQL** 的 AI Agent 后端。\n\n"
+            "### 核心能力\n"
+            "- 三层流式聊天（模型层 / 提示词层 / 记忆层）\n"
+            "- 提示词版本管理 + 公共/私有模板拼接 + Redis 缓存\n"
+            "- 用户画像变量注入（目标岗位 / 技能 / 薄弱点）\n"
+            "- RAG 文件向量化入库（PDF / DOCX / TXT / MD）+ 语义检索\n"
+            "- 三层记忆：瞬时（DB 近 N 轮）/ 工作（Redis 滑动摘要）/ 长期（画像后台抽取）\n"
+            "- LangGraph 学习测评工作流（interrupt + checkpoint + 评分 JSON）\n"
+            "- 流程总控路由（关键词 + 语义意图）+ A2A 信封\n"
+            "- MinIO 对象存储 + 过期清理定时任务\n\n"
+            "### 基础信息\n"
+            "- Swagger UI：`/docs`\n"
+            "- ReDoc：`/redoc`\n"
+            "- OpenAPI JSON：`/openapi.json`\n"
+            "- 健康检查：`/health`\n"
+        ),
+        routes=app.routes,
+    )
+    # 统一 SecurityScheme：Bearer JWT
+    schema.setdefault("components", {}).setdefault("securitySchemes", {
+        "bearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "请在登录后复制 Access Token 填入，格式：`Bearer <token>`",
+        }
+    })
+    return schema
+
+
 app = FastAPI(
     title=settings.APP_NAME,
-    description="基于 FastAPI + SQLAlchemy 2.0 + MySQL 的用户增删改查示例",
+    description="基于 FastAPI + SQLAlchemy 2.0 + MySQL 的 AI Agent 后端",
     version="1.0.0",
     lifespan=lifespan,
+    # 关闭默认 docs/redoc，下面用 unpkg CDN 手动挂载（规避 jsdelivr 在国内不可达）
+    docs_url=None,
+    redoc_url=None,
+    openapi_url="/openapi.json",
 )
+app.openapi = _custom_openapi  # type: ignore[method-assign]
+
+
+@app.get("/docs", include_in_schema=False, summary="Swagger UI")
+def swagger_ui() -> "HTMLResponse":  # type: ignore[name-defined]
+    """Swagger UI：使用 unpkg CDN 加载静态资源。"""
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title=f"{settings.APP_NAME} - Swagger UI",
+        swagger_js_url=SWAGGER_JS_URL,
+        swagger_css_url=SWAGGER_CSS_URL,
+        swagger_favicon_url=SWAGGER_FAVICON_URL,
+        swagger_ui_parameters={"defaultModelsExpandDepth": -1},
+    )
+
+
+@app.get("/redoc", include_in_schema=False, summary="ReDoc")
+def redoc_ui() -> "HTMLResponse":  # type: ignore[name-defined]
+    """ReDoc API 文档页：使用 unpkg CDN 加载静态资源。"""
+    return get_redoc_html(
+        openapi_url="/openapi.json",
+        title=f"{settings.APP_NAME} - ReDoc",
+        redoc_js_url=REDOC_JS_URL,
+    )
+
 
 # 注册全局异常处理器，所有接口异常统一捕获并返回标准化响应
 register_exception_handlers(app)
@@ -94,7 +174,7 @@ app.mount(
 )
 
 
-@app.get("/", summary="健康检查")
-def root() -> dict:
-    """根路径健康检查。"""
-    return {"code": 0, "message": f"{settings.APP_NAME} 已启动", "data": None}
+@app.get("/", include_in_schema=False, summary="根路径 → Swagger UI")
+def root() -> RedirectResponse:
+    """根路径重定向到 Swagger 文档页，方便调试。"""
+    return RedirectResponse(url="/docs", status_code=302)
